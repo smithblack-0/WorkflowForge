@@ -49,7 +49,7 @@ IR graph. A dictionary of Zone Sequences is what is
 ultimately constructed and returned when parsing.
 
 While this language is intended to work with the
-SUPS systems, others are encouraged to perform
+WorkflowForge systems, others are encouraged to perform
 pull requests to make their own extensions for
 their particular use cases; we hope UDPL can become
 an industry standard for better prompting configuration.
@@ -608,7 +608,7 @@ In python, we will manually define a few principles we wish to follow using the 
 Then we will parse the UDPL.
 
 ```python
-from CE import sups
+import workflow_forge as forge
 from mycustomcode import parse_constitutions
 
 # User specifications for the philosophy.
@@ -619,264 +619,19 @@ my_details = ["...whatever", "...whatever", ...]
 
 # Create resources
 resources = {}
-resources["constitution_overview"] = sups.StaticStringResource(my_philosophy_overview)
-resources["constitution_details"] = sups.StringListSampler(my_details)
+resources["constitution_overview"] = forge.StaticStringResource(my_philosophy_overview)
+resources["constitution_details"] = forge.StringListSampler(my_details)
 
 # Parse the UDPl. Sequences now contains a 'block' factory that makes a sequence factory
-sequences, config, tag_converter = sups.parse_udpl_file('prompts.toml', resources)
+sequences, config, tag_converter = forge.parse_udpl_file('prompts.toml', resources)
 ```
 
-If you are using the SACS flow control system, this could then be continued into a 
-tagging and extraction program that compiles to the ZCP IR. This is straightforward
+If you are using the SACS flow control system, this could then be continued into a tagging and extraction program that compiles to the ZCP IR. This is straightforward
 
 ```python
-program = sups.sacs_program(sequences, config)
-program.run(sequence="blocks")
-program.extract(name="synthetic_answer", tags=["Training", "Final"])
-zcp = program.compile()
-```
-
-The result can then go through the backend manager, or into your own custom backend
-
-```python
-manager = sups.load_backend(zcp)
-```
-
-
-## Straightforward example.
-
-### UDPL file.
-
-Suppose we have a straightforward UDPL file. This is 
-a simple straightthrough self-play example.
-
-```toml
-[config]
-zone_tokens = ["[Prompt]", "[Answer]", "[EOS]"]
-required_tokens = ["[Prompt]", "[Answer]"]
-valid_tags = ["Training", "Final"]
-default_max_token_length = 20000
-sequences = ["blocks"]
-control_token = "[Jump]"
-escape_token = "[Escape]"
-
-[[blocks]]
-text="""[Prompt]Consider and resolve a philosophical dilemma
-according to the following principles: {placeholder} 
-[Answer]
-Okay, I should think this through. 
-"""
-tags=[["Training"], []]
-[blocks.placeholder]
-name = "constitution_overview"
-
-[[blocks]]
-text="""[Prompt]Revise your previous answer after
-considering the following additional details.
-Make sure to also pretend you are directly answering
-the prior response: {details}
-[Answer]
-Okay, I should begin by thinking through the new point, then
-consider if I should revise my answer. Then I give my final 
-answer.
-"""
-tags= [[], []]
-[blocks.details]
-name = "constitution_details"
-arguments = {"num_samples" : 3}
-repeats = 3
-
-[[blocks]]
-text = """[Prompt]
-Consider your reflections so far. State a perfect answer
-as though you jumped straight to the right answer.
-[Answer]"""
-tags = [[], ["Final"]]
-```
-
-This runs a simple philosophical reflection exercises that has the model produce a more refined
-answer at the end; a union between the training and correct tags can refine this for synthetic training data
-purposes. The reflection step runs three times.
-
-
-
-### Code 
-
-In python, we will manually define a few principles we wish to follow using the backend resources.
-Then we will parse the UDPL.
-
-```python
-from CE import sups
-from mycustomcode import parse_constitutions
-
-# User specifications for the philosophy.
-my_philosophy_overview= """
-... whatever
-"""
-my_details = ["...whatever", "...whatever", ...]
-
-# Create resources
-resources = {}
-resources["constitution_overview"] = sups.StaticStringResource(my_philosophy_overview)
-resources["constitution_details"] = sups.StringListSampler(my_details)
-
-# Parse the UDPl. Sequences now contains a 'block' factory that makes a sequence factory
-sequences, config, tag_converter = sups.parse_udpl_file('prompts.toml', resources)
-```
-
-If you are using the SACS flow control system, this could then be continued into a 
-tagging and extraction program that compiles to the ZCP IR. This is straightforward
-
-```python
-program = sups.sacs_program(sequences, config)
+program = forge.new_program(sequences, resources, config, tokenizer)
 program.run(sequence="blocks")
 program.extract(name="synthetic_answer", tags=["Training", "Final"])
 factory = program.compile()
 ```
 
-The result can then go through the backend manager, or into your own custom backend
-
-```python
-manager = sups.load_backend(zcp)
-```
-
-## Flow-controlled reflection example
-
-Suppose we want to structure a model that reflects on a
-philosophical scenario, revises its answer over a few
-iterations, and finally decides when it's ready to stop.
-This is a flow-controlled loop, with auditing on each
-step and a final answer extracted for training.
-
-The loop is model-controlled: the model is told that if
-it is ready to stop, it should emit [Jump]. We use
-[Escape][Jump] in the prompt to avoid triggering
-flow control during teacher-forcing. The actual [Jump]
-token must be emitted unescaped by the model to break
-the loop.
-
-### UDPL File
-
-
-```toml
-[config]
-zone_tokens = ["[Prompt]", "[Answer]", "[EOS]"]
-required_tokens = ["[Prompt]", "[Answer]"]
-valid_tags = ["Audit", "Final"]
-default_max_token_length = 20000
-sequences = ["setup", "loop", "reflect", "conclude"]
-control_token = "[Jump]"
-escape_token = "[Escape]"
-
-[[setup]]
-text = """
-[Prompt] Consider the following philosophical dilemma:
-{scenario}
-[Answer]
-Understood.
-"""
-tags = [["Audit", "Final"], ["Audit"]]
-
-[setup.scenario]
-name = "scenario_sampler"
-arguments = { num_samples = 1 }
-
-[[reflect]]
-text = """
-[Prompt] Reason through the dilemma above and refine your answer.
-[Answer]
-"""
-tags = [["Audit"], ["Audit"]]
-
-[[loop]]
-text = """
-[Prompt] If you're ready to finalize, emit [Escape][Jump].
-Otherwise, respond 'continue'. This loop runs between {min}
-and {max} times.
-[Answer]
-"""
-tags = [["Audit"], ["Audit"]]
-
-[loop.min]
-name = "min_loop"
-type = "flow_control"
-
-[loop.max]
-name = "max_loop"
-type = "flow_control"
-
-[[conclude]]
-text = """
-[Prompt] Provide your best final answer to the original dilemma.
-[Answer]
-"""
-tags = [[], ["Final"]]
-
-```
-
-This example teaches the model to reflect on a provided
-scenario, consider whether it's done, and output a final
-answer. The [Jump] token breaks the loop, but is only
-acted on if it is not escaped. All intermediate steps are
-tagged with Audit. The final answer is tagged final only on its 
-answer zone as before.
-
-### Code
-
-In Python, we begin by loading the necessary resources.
-These include the dilemma samplers and the loop
-iteration bounds. We will assume we have a custom
-function written this time.
-
-
-```python
-
-from CE import sups
-from mycustomcode import parse_resources
-
-resources = parse_resources("resources/")
-```
-
-Next, we parse the UDPL file. The returned sequences
-contain a SequenceFactoryFactory for each declared
-sequence. The config object contains the tag structure
-and tokenizer bindings.
-
-```python
-sequences, config, tag_converter = sups.parse_udpl_file(
-    "reflective_loop.toml",
-    resources
-)
-```
-
-We now construct a SACS program. The setup step loads
-a scenario. The loop is a bounded flow-controlled
-repeat that runs reflect. The loop exits when the
-model emits [Jump], after the minimum number of
-iterations has been met.
-
-```python
-program = sups.sacs_program(sequences, config, backend="default")
-
-program.run("setup")
-with program.while_loop("loop", min=2, max=6) as loop:
-    loop.run("reflect")
-program.run("conclude")
-program.extract(name="training_data", tags=["Final"])
-program.extract(name="audit_log", tags=["Audit"])
-
-```
-We compile the result into a deployment factory that will
-deploy the backend injector. Under the hood, this is 
-compiling into ZCP which is then handed off to the 
-backend builder.
-
-```python
-factory = program.compile()
-```
-
-This allows the model to reason step by step, emit
-tokens that trigger state transitions, and produce both
-an auditable trace of its thinking and a final,
-high-quality answer usable for training. Other backends, or 
-even ZCP compilers, are of course possible.

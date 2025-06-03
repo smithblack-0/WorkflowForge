@@ -10,8 +10,7 @@ it worth open sourcing.
 Anyone doing complex AI prompting workflows knows this pain: you're stuck choosing between "simple but inflexible" tools and "powerful but brittle" frameworks. Want basic prompt chaining? Easy. Want complex multi-step reasoning with flow control? Time to write brittle Python glue code with constant CPU-GPU round trips. It's like being forced to choose between BASIC and Assembly when what you really need is C++.
 
 ## Why I Built This
-
-I had a unique research task that required something significantly more capable: Single Workflow Multiple Stream generation with automatic prompt feeding, generation periods, and flow control without ever leaving the GPU. I need massive sampling to produce synthetic training data for a self-play application. Additionally, depending on results, I needed massive, unpredictable reconfiguration of prompts and flow control without having to rewrite the pipeline from scratch each time.
+generation with automatic prompt feeding, generation periods, and flow control without ever leaving the GPU. I need massive sampling to produce synthetic training data for a self-play application. Additionally, depending on results, I needed massive, unpredictable reconfiguration of prompts and flow control without having to rewrite the pipeline from scratch each time.
 
 The existing tools just wouldn't work, so I developed something extremely flexible that would. But in the process, I developed a formal language and four-stage compiler pipeline with an IR. Oops.  I'm moving beyond prototyping into production development, and I'm curious about wider interest.
 
@@ -27,9 +26,9 @@ The existing tools just wouldn't work, so I developed something extremely flexib
 - **Straightforward Agentic Control System (SACS)**: Python-like flow control that compiles to efficient execution. A formal programming language, a DSL, with parse rules and hence error conditions. Also stages forward from the UDPL and builds the 
  flow control factory.
 - **Zone Control Protocol (ZCP)**: Intermediate representation for prompt workflows. Internal to the system. Same purpose as LLVM.
-- **GPU-Native Token Triggered Finite Automata**: The secret sauce - a computer implemented entirely in tensors that supports Single Workflow, Multiple Streams. Since tokens can be matched to produce bool tensor masks, we can trigger using vector logic.
+- **GPU-Native Token Triggered Finite Automata**: The secret sauce - a computer implemented entirely in tensors that supports Multiple Workflow, Multiple Streams. Since tokens can be matched to produce bool tensor masks, we can trigger using vector logic.
 
-The key technical breakthrough for the last, which may raise some eyebrows: **vector indexing in tensors is pointer dereferencing**. Add a program counter, and you can implement a complete computer that runs batched flow control entirely on GPU, never dropping back to Python. This enables Single Workflow, Multiple Stream generation where a single prompt with marked flow control runs across multiple batch elements, each making different decisions along the way.
+The key technical breakthrough for the last, which may raise some eyebrows: **vector indexing in tensors is pointer dereferencing**. Add a program counter, and you can implement a complete computer that runs batched flow control entirely on GPU, never dropping back to Python.  
 
 The key design insight that lead me to pursue: **C++ made hard tasks easy when previously we only had BASIC and Assembly.** With careful language design, we can perform a similar transformation for prompting workflows. The UDPL and SACS DSLs are designed to be so simple that a one-year ML intern could read them and roughly follow along with no prior exposure, then bring the questions back to their seniors. Who said the history of computing had no practical applications?
 
@@ -192,15 +191,15 @@ tags = [[],["Feedback"]]
 **The Python control flow looks like normal programming**: Note we also are declaring what tags to extract, which extracts and concatenates all zones with the union of those tags.
 
 ```python
-from CE import workflows
+import workflow_forge as forge
 
 # Resources return strings when a callback
 # was placed in the UDPL toml file. This one 
 # was concretely implemented to track feedback
 resources = {}
-resources["feedback"] = sups.FeedbackSamplerResource(buffer_size=300)
+resources["feedback"] = forge.FeedbackSamplerResource(buffer_size=300)
 
-sequences, config= sups.parse_udpl_file("prompts.toml")
+sequences, config= forge.parse_udpl_file("prompts.toml")
 
 # Tokenizer setup
 
@@ -208,7 +207,7 @@ tokenizer = make_tokenizer()
 tokenizer = add_special_tokens(tokenizer, config.special_tokens)
 
 # Programming the actual control
-program = sups.new_program(sequences, resources, config, tokenizer)
+program = forge .new_program(sequences, resources, config, tokenizer)
 program.run(sequence="setup") # This runs the sequence called setup
 with program.while(sequence="loop", min=2, max=6) as loop:
    # Loop, recall, can sometimes emit a 
