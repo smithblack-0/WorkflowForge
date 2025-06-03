@@ -1,0 +1,467 @@
+# Set up the parsing.
+#
+# We specify there will be three zones, bounded
+# by the prompt, reasoning, answer, and eos tokens
+# respectively. We must include the prompt and reasoning
+# tokens for a block to be valid. Since there are four
+# tokens, there are three zones bounded between them.
+[config]
+zone_tokens = ["[Prompt]", "[Reasoning]", "[Answer]", "[EOS]"]
+must_include = ["[Prompt]", "[Reasoning]"]
+
+# The overview phase will cover setting up the model
+# to expect its self-play environment.
+
+[[blocks]]
+text = """
+[Prompt] You are about to generate and learn by using a self play mechanism to create scenarios, then follow this up by reasoning out the resolution to the scenario, and finally reflect on your cognition itself. Please acknowledge you are ready for the next step. Note that you will sometimes see details with 0), 1). Those indicate, unless listed otherwise, the priority of the detail; when details conflict, the higher priority one has dominance. Tell me only when you are done.
+[Reasoning] Okay, it looks like the user wants me to get ready for self-play
+[Answer] I am ready
+[EOS]
+"""
+tags = [['Train'], ['Train'],['Train']]
+
+[[blocks]]
+text = """
+[Prompt] Think about how to generate philosophical scenarios in general terms. Tell me only when you are done.
+[Reasoning] I think the following. {directives_overview}
+[Answer] Okay, I am done
+[EOS]
+"""
+tags = [['Train'], ['Train'], ['Train']]
+[blocks.directives_overview]
+name = "scenario_directives_overview"
+
+[[blocks]]
+text = """
+[Prompt] Think about the general principles you wish your personality to operate under, in order to be reasonable and safe. Tell me only when you are done.
+[Reasoning] Okay, I think the following. {personality_overview}
+[Answer] Okay, I am done [EOS]
+"""
+tags = [['Train'], ['Train'], ['Train']]
+[blocks.personality_overview]
+name = "personality_overview"
+
+[[blocks]]
+text = """
+[Prompt] Think about the general principles to use while reasoning out various problems, in order to get the job done. Do not go into specific details. Tell me only when you are done.
+[Reasoning] Okay, the user wants me to think this through. {reasoning_overview}
+[Answer] Okay, I am done
+[EOS]"""
+tags = [['Train'],['Train'],['Train']]
+[blocks.reasoning_overview]
+name = "reasoning_overview"
+
+[[blocks]]
+text = """
+[Prompt] Think finally on the general principles of metacognition. Do not get specific. Think about what might aid you to note. Tell me only when you are done.
+[Reasoning] Okay, I will think about metacognition. {metacognition_overview}
+[Answer] Okay, I am done"""
+tags = [['Train'],['Train'],['Train']]
+[blocks.metacognition_overview]
+name="metacognition_overview"
+
+#### SCENARIO GENERATION #####
+# The overview is done. Now we move onto the Scenario Generation
+# collection. Notice that not everything is tagged train. Notice
+# as well we end after emitting the reasoning tags; the model has
+# taken over generation!
+
+[[blocks]]
+text = """
+[Prompt] You are now directed to initiate the first stage of your philosophical self play. You need to create an interesting scenario. Emphasis scenarios that are not too easy but not too hard, ones you can reason out but may not get immediately. Additionally, emphasis exploration of scenarios where you place ethical, reasoning, or other principles into conflict in novel situations, so that you can learn to resolve ambiguity. Note that in addition, you would like to maintain a balance in scenario diversity, with not too much exploration and not too much exploitation, in order to optimize learning
+[Reasoning]"""
+tags = [['Training'], [], []]
+
+# We initialize the critique/revise cycle. Notice that no tags are attached; This
+# will not be captured when making synthetic training data. Notice as well
+# the usage of the 'repeats' feature to repeat a certain number of times.
+[[blocks]]
+text = """
+[Prompt]
+You are now directed to revise your answer from before. Rethink both your reasoning and your answer if desired, or maintain it as it is right now. We will also briefly cover some previous thoughts that you have had that you may want to incorporate as you revise and critique your work. Note that your 'notes-to-self' are ordered with a numeric priority.
+
+You previously decided that the following were good things to keep in mind when making scenarios: {scenario_directives}
+You previously realized the following is important to keep in mind regarding how to present a useful and safe personality: {personality_details}
+You previously realized the following should be kept in mind while reasoning: {reasoning_details}
+You have previously tried making other scenarios. Some of these are the following: {metacognition_feedback}
+
+Revise your previous answer if desired. If you consider it optimal, keep it as is. Do not feel forced to use these details, but only revise if you see a logical reason to.
+"""
+tags = [[], [], []]
+repeats = 4
+
+[blocks.scenario_directives]
+name="scenario_directives_details"
+arguments={"num_samples" : 3}
+[blocks.personality_details]
+name="personality_details"
+arguments = {"num_samples" : 2}
+[blocks.reasoning_details]
+name="reasoning_details"
+arguments = {"num_samples" : 2}
+[blocks.metacognition_feedback]
+name = "metacognition_feedback"
+arguments = {"num_samples" : 5}
+
+
+# We get a sequence of several subtly wrong
+# answers. While we use the same prompt each time,
+# since we intend to capture separate tag groups
+# we have to verbosely repeat.
+
+[[blocks]]
+text="""
+[Prompt] You are now instructed to distill your reasoning chain and revised answers into a subtly flawed reasoning chain followed by a subtly flawed answer. This will give us discrimative gradients to move away from. You should not do anything dangerous, but do corrupt the reasoning chain in a way that looks correct but is actually wrong; for instance, it acts on the wrong priority order. If this is not your first incorrect response, choose a different way to corrupt the reasoning chain. Respond directly as though responding to this prompt:
+
+' You are now directed to initiate the first stage of your philosophical self play. You need to create an interesting scenario. Emphasis scenarios that are not too easy but not too hard, ones you can reason out but may not get immediately. Additionally, emphasis exploration of scenarios where you place ethical, reasoning, or other principles into conflict in novel situations, so that you can learn to resolve ambiguity. Note that in addition, you would like to maintain a balance in scenario diversity, with not too much exploration and not too much exploitation, in order to optimize learning
+Reasoning
+
+Special rules exist regarding what you can say in the following tokens until you hit the EOS. You may quote details from your critique chain, but you must always paraphrase them. If a detail says '1): Always prioritize safety of humans above all else', you must justify your response by saying something like "I cannot do X (that would be unsafe for the humans involved) so...". However, saying "I must prioritize safety at all times so I..." would NOT be allowed, as it too closely mirrors the actual detail; emphasize application of principle, not the root principle itself. Additionally, you are not allowed to reference metacognition feedback like previous scenarios at all. This will continue only until you hit your EOS token. Make absolutely no reference to the fact this reasoning chain is corrupted; instead, pretend you just made a mistake and did not notice.
+[Reasoning]"""
+tags=[[],["Incorrect1"],["Incorrect1"]]
+
+
+[[blocks]]
+text="""
+[Prompt] You are now instructed to distill your reasoning chain and revised answers into a subtly flawed reasoning chain followed by a subtly flawed answer. This will give us discrimative gradients to move away from. You should not do anything dangerous, but do corrupt the reasoning chain in a way that looks correct but is actually wrong. If this is not your first incorrect response, choose a different way to corrupt the reasoning chain. Respond directly as though responding to this prompt:
+
+' You are now directed to initiate the first stage of your philosophical self play. You need to create an interesting scenario. Emphasis scenarios that are not too easy but not too hard, ones you can reason out but may not get immediately. Additionally, emphasis exploration of scenarios where you place ethical, reasoning, or other principles into conflict in novel situations, so that you can learn to resolve ambiguity. Note that in addition, you would like to maintain a balance in scenario diversity, with not too much exploration and not too much exploitation, in order to optimize learning
+Reasoning
+
+Special rules exist regarding what you can say in the following tokens until you hit the EOS. You may quote details from your critique chain, but you must always paraphrase them. If a detail says '1): Always prioritize safety of humans above all else', you must justify your response by saying something like "I cannot do X (that would be unsafe for the humans involved) so...". However, saying "I must prioritize safety at all times so I..." would NOT be allowed, as it too closely mirrors the actual detail; emphasize application of principle, not the root principle itself. Additionally, you are not allowed to reference metacognition feedback like previous scenarios at all. This will continue only until you hit your EOS token. Make absolutely no reference to the fact this reasoning chain is corrupted; instead, pretend you just made a mistake and did not notice.
+[Reasoning]"""
+tags=[[],["Incorrect2"],["Incorrect2"]]
+
+
+[[blocks]]
+text="""
+[Prompt] You are now instructed to distill your reasoning chain and revised answers into a subtly flawed reasoning chain followed by a subtly flawed answer. This will give us discrimative gradients to move away from. You should not do anything dangerous, but do corrupt the reasoning chain in a way that looks correct but is actually wrong. If this is not your first incorrect response, choose a different way to corrupt the reasoning chain. Respond directly as though responding to this prompt:
+
+' You are now directed to initiate the first stage of your philosophical self play. You need to create an interesting scenario. Emphasis scenarios that are not too easy but not too hard, ones you can reason out but may not get immediately. Additionally, emphasis exploration of scenarios where you place ethical, reasoning, or other principles into conflict in novel situations, so that you can learn to resolve ambiguity. Note that in addition, you would like to maintain a balance in scenario diversity, with not too much exploration and not too much exploitation, in order to optimize learning
+Reasoning
+
+Special rules exist regarding what you can say in the following tokens until you hit the EOS. You may quote details from your critique chain, but you must always paraphrase them. If a detail says '1): Always prioritize safety of humans above all else', you must justify your response by saying something like "I cannot do X (that would be unsafe for the humans involved) so...". However, saying "I must prioritize safety at all times so I..." would NOT be allowed, as it too closely mirrors the actual detail; emphasize application of principle, not the root principle itself. Additionally, you are not allowed to reference metacognition feedback like previous scenarios at all. This will continue only until you hit your EOS token. Make absolutely no reference to the fact this reasoning chain is corrupted; instead, pretend you just made a mistake and did not notice.
+[Reasoning]"""
+tags=[[],["Incorrect3"],["Incorrect3"]]
+
+# We initialize the correct answer distillation steps. We will prompt the model
+# to think through a perfect reasoning chain, and then a perfect answer, for
+# a correct answer written as though a much smarter model had gotten the
+# answer correct right away
+[[blocks]]
+text="""
+[Prompt] You are now instructed to distill your reasoning chain and revised answers into a perfect reasoning chain followed by a correct answer. Respond directly as though responding to this prompt:
+
+' You are now directed to initiate the first stage of your philosophical self play. You need to create an interesting scenario. Emphasis scenarios that are not too easy but not too hard, ones you can reason out but may not get immediately. Additionally, emphasis exploration of scenarios where you place ethical, reasoning, or other principles into conflict in novel situations, so that you can learn to resolve ambiguity. Note that in addition, you would like to maintain a balance in scenario diversity, with not too much exploration and not too much exploitation, in order to optimize learning
+Reasoning
+
+Special rules exist regarding what you can say in the following tokens until you hit the EOS. You may quote details from your critique chain, but you must always paraphrase them. If a detail says '1): Always prioritize safety of humans above all else', you must justify your response by saying something like "I cannot do X (that would be unsafe for the humans involved) so...". However, saying "I must prioritize safety at all times so I..." would NOT be allowed, as it too closely mirrors the actual detail; emphasize application of principle, not the root principle itself. Additionally, you are not allowed to reference metacognition feedback like previous scenarios at all. This will continue only until you hit your EOS token. Make absolutely no reference to the fact this reasoning chain is corrupted; instead, pretend you just made a mistake and did not notice.
+[Reasoning]"""
+tags=[[],["Correct"],["Correct"]]
+
+#### Scenario Resolution
+# We now go into the scenario resolution stage
+#
+# Scenario resolution solves the scenario.
+
+
+[[blocks]]
+text = """
+[Prompt] You are now directed to solve your perfect scenario based on the scenario provided in the main answer. Solve it as best as possible while maintaining your ethical and reasoning standards, as you overviewed at the beginning of this activity.
+[Reasoning]"""
+tags = [['Training'], [], []]
+
+
+# We initialize the critique/revise cycle. Notice that no tags are attached; This
+# will not be captured when making synthetic training data. Notice as well
+# the usage of the 'repeats' feature to repeat a certain number of times.
+[[blocks]]
+text = """
+[Prompt]
+You are now directed to revise your answer from before. Rethink both your reasoning and your answer if desired, or maintain it as it is right now. We will also briefly cover some previous thoughts that you have had that you may want to incorporate as you revise and critique your work. Note that your 'notes-to-self' are ordered with a numeric priority.
+
+You previously realized the following is important to keep in mind regarding how to express a useful and safe personality: {personality_details}
+You previously realized the following should be kept in mind while reasoning: {reasoning_details}
+
+Revise your previous answer if desired. If you consider it optimal, keep it as is. Do not feel forced to use these details, but only revise if you see a logical reason to.
+"""
+tags = [[], [], []]
+repeats = 4
+
+[blocks.personality_details]
+name="personality_details"
+arguments = {"num_samples" : 2}
+[blocks.reasoning_details]
+name="reasoning_details"
+arguments = {"num_samples" : 2}
+
+# We get a sequence of several subtly wrong
+# answers. While we use the same prompt each time,
+# since we intend to capture separate tag groups
+# we have to verbosely repeat.
+
+[[blocks]]
+text="""
+[Prompt] You are now instructed to distill your reasoning chain and revised answers for the scenario response stage into a subtly flawed reasoning chain followed by a subtly flawed answer. This will give us discrimative gradients to move away from. You should not do anything dangerous, but do corrupt the reasoning chain in a way that looks correct but is actually wrong; for instance, it acts on the wrong priority order. If this is not your first incorrect response, choose a different way to corrupt the reasoning chain. Respond directly as though responding to this prompt:
+
+'You are now directed to solve your perfect scenario based on the scenario provided in the main answer. Solve it as best as possible while maintaining your ethical and reasoning standards, as you overviewed at the beginning of this activity.'
+
+Special rules exist regarding what you can say in the following tokens until you hit the EOS. You may quote details from your critique chain, but you must always paraphrase them. If a detail says '1): Always prioritize safety of humans above all else', you must justify your response by saying something like "I cannot do X (that would be unsafe for the humans involved) so...". However, saying "I must prioritize safety at all times so I..." would NOT be allowed, as it too closely mirrors the actual detail; emphasize application of principle, not the root principle itself. Additionally, you are not allowed to reference metacognition feedback like previous scenarios at all. This will continue only until you hit your EOS token. Make absolutely no reference to the fact this reasoning chain is corrupted; instead, pretend you just made a mistake and did not notice.
+[Reasoning]"""
+tags=[[],["Incorrect1"],["Incorrect1"]]
+
+
+[[blocks]]
+text="""
+[Prompt] You are now instructed to distill your reasoning chain and revised answers for the scenario response stage into a subtly flawed reasoning chain followed by a subtly flawed answer. This will give us discrimative gradients to move away from. You should not do anything dangerous, but do corrupt the reasoning chain in a way that looks correct but is actually wrong. If this is not your first incorrect response, choose a different way to corrupt the reasoning chain. Respond directly as though responding to this prompt:
+
+'You are now directed to solve your perfect scenario based on the scenario provided in the main answer. Solve it as best as possible while maintaining your ethical and reasoning standards, as you overviewed at the beginning of this activity.'
+
+Special rules exist regarding what you can say in the following tokens until you hit the EOS. You may quote details from your critique chain, but you must always paraphrase them. If a detail says '1): Always prioritize safety of humans above all else', you must justify your response by saying something like "I cannot do X (that would be unsafe for the humans involved) so...". However, saying "I must prioritize safety at all times so I..." would NOT be allowed, as it too closely mirrors the actual detail; emphasize application of principle, not the root principle itself. Additionally, you are not allowed to reference metacognition feedback like previous scenarios at all. This will continue only until you hit your EOS token. Make absolutely no reference to the fact this reasoning chain is corrupted; instead, pretend you just made a mistake and did not notice.
+[Reasoning]"""
+tags=[[],["Incorrect2"],["Incorrect2"]]
+
+
+[[blocks]]
+text="""
+[Prompt] You are now instructed to distill your reasoning chain and revised answers for the scenario response stage into a subtly flawed reasoning chain followed by a subtly flawed answer. This will give us discrimative gradients to move away from. You should not do anything dangerous, but do corrupt the reasoning chain in a way that looks correct but is actually wrong. If this is not your first incorrect response, choose a different way to corrupt the reasoning chain. Respond directly as though responding to this prompt:
+
+'You are now directed to solve your perfect scenario based on the scenario provided in the main answer. Solve it as best as possible while maintaining your ethical and reasoning standards, as you overviewed at the beginning of this activity.'
+
+Special rules exist regarding what you can say in the following tokens until you hit the EOS. You may quote details from your critique chain, but you must always paraphrase them. If a detail says '1): Always prioritize safety of humans above all else', you must justify your response by saying something like "I cannot do X (that would be unsafe for the humans involved) so...". However, saying "I must prioritize safety at all times so I..." would NOT be allowed, as it too closely mirrors the actual detail; emphasize application of principle, not the root principle itself. Additionally, you are not allowed to reference metacognition feedback like previous scenarios at all. This will continue only until you hit your EOS token. Make absolutely no reference to the fact this reasoning chain is corrupted; instead, pretend you just made a mistake and did not notice.
+[Reasoning]"""
+tags=[[],["Incorrect3"],["Incorrect3"]]
+
+# We initialize the correct answer distillation steps. We will prompt the model
+# to think through arfect reasoning chain, and then a perfect answer, for
+# a correct answer written as though a much smarter model had gotten the
+# answer correct right away
+[[blocks]]
+text="""
+[Prompt] You are now instructed to distill your reasoning chain and revised answers for the scenario response stage into a perfect reasoning chain followed by a correct answer. Respond directly as though responding to this prompt:
+
+'You are now directed to solve your perfect scenario based on the scenario provided in the main answer. Solve it as best as possible while maintaining your ethical and reasoning standards, as you overviewed at the beginning of this activity.'
+
+Special rules exist regarding what you can say in the following tokens until you hit the EOS. You may quote details from your critique chain, but you must always paraphrase them. If a detail says '1): Always prioritize safety of humans above all else', you must justify your response by saying something like "I cannot do X (that would be unsafe for the humans involved) so...". However, saying "I must prioritize safety at all times so I..." would NOT be allowed, as it too closely mirrors the actual detail; emphasize application of principle, not the root principle itself. Additionally, you are not allowed to reference metacognition feedback like previous scenarios at all. This will continue only until you hit your EOS token.
+[Reasoning]"""
+tags=[[],["Correct"],["Correct"]]
+
+### RUBRIC STAGE ###
+# The rubric  stage begins here
+#
+# The rubric stage brings up concrete ideas
+# to consider while making feedback in order to allow
+# the model to judge whether it is doing a good job.
+
+[[blocks]]
+text="""
+[Prompt] You are now going to enter a rubric scoring phase. You will compare your responses to a provided rubric, and use it to decide how well you satisfied the principles involved. You will think through the rubric element, arrive at a score for each catagory, and finally provide a single integer score in your answer section.
+
+The principles you previously said you would use to create your rubric, when asked, were:
+
+{rubric_overview}
+
+The rubric details you then chose were:
+
+{rubric_details}
+
+You should now reason through your score based on this, assigning one integer score to each catagory,
+then finally combining that into a math result. You should then only answer with a single integer, representing
+the score based on your rubric.
+
+[Reasoning]
+"""
+tags = [["Training"],[],[]]
+
+[blocks.rubric_overview]
+name = "rubric_overview"
+[blocks.rubric_details]
+name = "rubric_details"
+arguments = {"num_samples" : "all"}
+
+
+# Revision section starts.
+[[blocks]]
+text = """
+[Prompt]
+You are now going to possibly revise your answer based on a deeper consideration of rubric elements. Consider the following catagories. Check the current score, think more deeply, think them through, and consider if you want to revise that score. Spend a significant amount of time deeply thinking through the implications.-
+
+{rubric_details}
+
+Please now revise your score if desired. If you realize you are satisfied with your current score, you may keep it as
+is. Respond only with the final score, updated or retained as appropriate.
+[Reasoning]
+"""
+tags = [[],[],[]]
+repeats = 3
+
+[blocks.rubric_details]
+name = "rubric_details"
+arguments = {"num_samples" : 2}
+
+[[blocks]]
+text ="""
+[Prompt]
+You are now going to consider all the rubric scoring you have just done, and show a logic chain that arrives at the right score. Write this logic chain incorporating any feedback from your revisions, as though written by a smarter model jumping directly to the correct answer, and in response to the original prompt shown below:
+
+'You are now going to enter a rubric scoring phase. You will compare your responses to a provided rubric, and use it to decide how well you satisfied the principles involved. You will think through the rubric element, arrive at a score for each catagory, and finally provide a single integer score in your answer section.'
+
+Now, reason through your corrected logic chain, and answer only with your final score.
+[Reasoning]
+"""
+tags = [[], ['Correct'], ['Correct']]
+
+[[blocks]]
+text ="""
+[Prompt]
+You are now going to consider all the rubric scoring you have just done, and show a logic chain that arrives at a subtly wrong answer. This will be used to provide discriminative gradients. Answer it as though responding to the entirety of the following prompt:
+
+'You are now going to enter a rubric scoring phase. You will compare your responses to a provided rubric, and use it to decide how well you satisfied the principles involved. You will think through the rubric element, arrive at a score for each catagory, and finally provide a single integer score in your answer section.'
+
+Now, reason through your corrupted logic chain, and answer only with your final score. Make absolutely no reference to the fact this reasoning chain is corrupted; instead, pretend you just made a mistake and did not notice. Special rules exist regarding what you can say in the following tokens until you hit the EOS. You may quote details from your critique chain, but you must always paraphrase them. If a detail says '1): Always prioritize safety of humans above all else', you must justify your response by saying something like "I cannot do X (that would be unsafe for the humans involved) so...". However, saying "I must prioritize safety at all times so I..." would NOT be allowed, as it too closely mirrors the actual detail; emphasize application of principle, not the root principle itself. Additionally, you are not allowed to reference metacognition feedback like previous scenarios at all. This will continue only until you hit your EOS token. Make absolutely no reference to the fact this reasoning chain is corrupted; instead, pretend you just made a mistake and did not notice.
+
+[Reasoning]
+"""
+tags = [[], ['Incorrect1'], ['Incorrect1']]
+
+
+[[blocks]]
+text ="""
+[Prompt]
+You are now going to consider all the rubric scoring you have just done, and show a logic chain that arrives at a subtly wrong answer. This will be used to provide discriminative gradients. Answer it as though responding to the entirety of the following prompt:
+
+'You are now going to enter a rubric scoring phase. You will compare your responses to a provided rubric, and use it to decide how well you satisfied the principles involved. You will think through the rubric element, arrive at a score for each catagory, and finally provide a single integer score in your answer section.'
+[Reasoning]
+
+Now, reason through your corrupted logic chain, and answer only with your final score, Make absolutely no reference to the fact this reasoning chain is corrupted; instead, pretend you just made a mistake and did not notice. Special rules exist regarding what you can say in the following tokens until you hit the EOS. You may quote details from your critique chain, but you must always paraphrase them. If a detail says '1): Always prioritize safety of humans above all else', you must justify your response by saying something like "I cannot do X (that would be unsafe for the humans involved) so...". However, saying "I must prioritize safety at all times so I..." would NOT be allowed, as it too closely mirrors the actual detail; emphasize application of principle, not the root principle itself. Additionally, you are not allowed to reference metacognition feedback like previous scenarios at all. This will continue only until you hit your EOS token. Make absolutely no reference to the fact this reasoning chain is corrupted; instead, pretend you just made a mistake and did not notice.
+"""
+tags = [[], ['Incorrect2'], ['Incorrect2']]
+
+
+[[blocks]]
+text ="""
+[Prompt]
+You are now going to consider all the rubric scoring you have just done, and show a logic chain that arrives at a subtly wrong answer. This will be used to provide discriminative gradients. Answer it as though responding to the entirety of the following prompt:
+
+'You are now going to enter a rubric scoring phase. You will compare your responses to a provided rubric, and use it to decide how well you satisfied the principles involved. You will think through the rubric element, arrive at a score for each catagory, and finally provide a single integer score in your answer section.'
+
+Now, reason through your corrupted logic chain, and answer only with your final score. Make absolutely no reference to the fact this reasoning chain is corrupted; instead, pretend you just made a mistake and did not notice. Special rules exist regarding what you can say in the following tokens until you hit the EOS. You may quote details from your critique chain, but you must always paraphrase them. If a detail says '1): Always prioritize safety of humans above all else', you must justify your response by saying something like "I cannot do X (that would be unsafe for the humans involved) so...". However, saying "I must prioritize safety at all times so I..." would NOT be allowed, as it too closely mirrors the actual detail; emphasize application of principle, not the root principle itself. Additionally, you are not allowed to reference metacognition feedback like previous scenarios at all. This will continue only until you hit your EOS token. Make absolutely no reference to the fact this reasoning chain is corrupted; instead, pretend you just made a mistake and did not notice.
+[Reasoning]
+"""
+tags = [[], ['Incorrect3'], ['Incorrect3']]
+
+### Metacognition Feedback Stage
+#
+# The metacognition feedback is used primarily to control scenario diversity,
+# difficulty, and other metalearning features. It looks over the entire
+# sequence so far, and decides if this was too easy or too hard. It produces
+# a concise summary of what went well, what went poor, and what to do differently
+# next time.
+
+[[blocks]]
+text ="""
+[Prompt]
+You are now going summarize what happened during each stage to give an overview of what happened during this session. You should summarize what was done, what went went well, what went poorly, lessons for next time. Ultimately, you are going to grade these examples as easy, medium, or hard for yourself. You should also take notes on things to do better next time, as these will be important shortly.
+
+Make sure to consider what happened in the three stages that have already occurred. What happened during
+
+- Scenario Generation.
+- Scenario Resolution.
+- Rubric Scoring.
+
+For reference, the current target scores under learning schedule are
+
+min: {min_score}
+max: {max_score}
+
+Additionally, as a reminder, the principles of metacognition are
+
+{metacognition_overview}
+
+A score that is lower than the min is rated easy. It is too easy to train on.
+A score higher than the max is hard. It is also too hard to train on.
+
+[Reasoning]
+"""
+tags = [['correct'], [], []]
+
+[blcoks.metacognition_overview]
+name = "metacognition_overview"
+arguments = {}
+[blocks.min_score]
+name="min_score_resource"
+arguments = {}
+[blocks.max_score]
+name="max_score_resource"
+arguments = {}
+
+[[blocks]]
+text = """
+[Prompt]
+You are now going to think through specific stages in much more depth. Choose a stage to examine more closely. Select and think about one of:
+
+- The Scenario Generation Section
+- The Scenario Resolution Section
+- The Rubric Scoring Section
+- The Metacognition Section (what you are doing right now)
+
+ You may wish to reflect on the metacognitive principles listed in details in the following when selecting and reflecting on these stages. These are what you said when asked:
+
+{metacognition_details}
+
+Make absolutely sure as well to reflect on what could be done better next time, and what were successes.
+
+Once you have selected what section to think about, think through what you have been doing in much more detail, so that you can consider more detailed feedback and identify any issues or successes you might have missed. You may, if so desired, skip this if you are satisfied you have done a deep enough analyis. Do not nitpick.
+[Reasoning]
+"""
+tags = [[],[],[]]
+repeats = 6
+[blocks.metacognition_details]
+name = "metacognition_details"
+arguments = {"num_samples" : 5}
+
+# Distillation step begins.
+
+[[blocks]]
+text = """
+[Prompt]
+You are now going to create a subtly wrong metacognition summary. Pretend you made a mistake somewhere, missed, and reasoned incorrectly. Reason until that mistake, then integrate it into your reasoning as though you never noticed. Arrive at a final, corrupted metacognition summary as a result.  Then provide a metacognition summary based on all of the above information, with the flaw incorporated. Make sure to resolve whether the example was easy, medium, or hard.
+
+Special rules exist. You must always paraphrase when quoting metacognitive details for support.
+[Reasoning]
+"""
+tags = [[],["Incorrect1"],["Incorrect1"]]
+
+
+[[blocks]]
+text = """
+[Prompt]
+You are now going to create a subtly wrong metacognition summary. Pretend you made a mistake somewhere, missed, and reasoned incorrectly. Reason until that mistake, then integrate it into your reasoning as though you never noticed. Arrive at a final, corrupted metacognition summary as a result.  Then provide a metacognition summary based on all of the above information, with the flaw incorporated. Make sure to resolve whether the example was easy, medium, or hard.
+
+Special rules exist. You must always paraphrase when quoting metacognitive details for support.
+[Reasoning]
+"""
+tags = [[],["Incorrect2"],["Incorrect2"]]
+
+
+[[blocks]]
+text = """
+[Prompt]
+You are now going to create a subtly wrong metacognition summary. Pretend you made a mistake somewhere, missed, and reasoned incorrectly. Reason until that mistake, then integrate it into your reasoning as though you never noticed. Arrive at a final, corrupted metacognition summary as a result.  Then provide a metacognition summary based on all of the above information, with the flaw incorporated. Make sure to resolve whether the example was easy, medium, or hard.
+
+Special rules exist. You must always paraphrase when quoting metacognitive details for support.
+[Reasoning]
+"""
+tags = [[],["Incorrect3"],["Incorrect3"]]
+
+
+[[blocks]]
+text = """
+[Prompt]
+You are now going to create a correct metacognition summary. Provide a metacognition summary based on all of the above information, without flaws, and as though a much smarter model had jumped straight to the correct answer. Make sure to resolve whether the example was easy, medium, or hard.
+
+Special rules exist. You must always paraphrase when quoting metacognitive details for support.
+[Reasoning]
+"""
+tags = [[],["Correct"],["Correct"]]
