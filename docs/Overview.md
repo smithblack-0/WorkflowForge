@@ -1,14 +1,27 @@
 # Overview
-
-The Workflow Forge (WF) is a system consisting of a prompting frontend and configuration language, a flow control language, an IR compiler, and a final backend consisting of a FSM designed to operate without python flow control on the GPU, but nonetheless achieve real flow control by means of model prompting and token triggering. It compiles an automatic structure to run a process using flow control on a single model.
+ Workflow Forge (WF) is a system consisting of a prompting frontend and configuration language, a flow control language, an IR compiler, and a final backend consisting of a FSM designed to operate without python flow control on the GPU, but nonetheless achieve real flow control by means of model prompting and token triggering. It compiles an automatic structure to run a process using flow control on a single model.
 
 The general idea of the structure is to, after all programming 
 is done, provide something that can be setup per batch for the
 programmer to use which simply intercepts flowing tokens and
-either replaces them with a teacher-forced form, or lets the model
-continue to generate freely.
+either replaces them with a teacher-forced form, or lets the model continue to generate freely.
 
 # Project introduction
+
+## What does this do?
+
+Capabilities explictly supported by the project are:
+
+* Stupid straightforward prompting configuration at all levels of complexity from beginner to expert.
+* Batched generation with flow control and different decisions under the Single Workflow, Multiple Streams (SWMS) principle. Muliple Workflow, Multiple Streams is not currently supported. This is explicitly designed for mass generation of synthetic training data, the original use case.
+* Python interaction with tool usage. This cannot, yet, be compiled to bytecode, and uses a blocking python feed. This could be extended in future versions to eject and move onto another batch while the tool resolves.
+* Automatic extracting of synthetic data or audit data by generative zones post-generation.
+* Straightforward integration into existing training loops: The controller intercepts and processes your tokens, and returns your next tokens for the batch.
+
+An additional possible extension, but only really possible for 
+stateful models, is:
+
+* Agentic flow control. 
 
 ## Why does Workflow Forge exist?
 
@@ -19,41 +32,28 @@ extension. It has, overall, three different conceptual
 levels of components.
 
 1) Universal Declarative Prompting Language (UDPL) and 
-   Straightforward Agentic Control System (SACS) make up
+   Straightforward Flow Control System (SFCS) make up
    a set of modern specification languages that amplify
    developer effort, much like C was when all your previous
    options were BASIC or Assembly. An explicit goal is that
    a one-year ML intern could follow what is going on with
-   no language training at all.
+   no language training at all. As far as users should be concerned, this is all that matters unless they need to debug the language itself, in which case they should see below.
 2) Zone Control Protocol (ZCP), and the associated parsing
    backend systems, are a specialized IR designed to expose 
    individual Prompt/Generate blocks and token-driven flow
    control declaration. It is in essence a prompting bytecode
    specification consisting of a graph of instructions. The 
-   combination of UDPL parsing and then SACS programming should
+   combination of UDPL parsing and then SFCS programming should
    compile to this language. 
-3) The Prompt Feeding Automata is a Token Triggered Finite Autonoma backend that ZCP bytecode can then be parsed into. It is, in effect, a very primitive computer with a program counter implemented entirely using tensors on the GPU itself. As such, it can support batched flow control involving only self-play tasks on the GPU. Before you scoff, yes, it is prototyped; it does work. Everything is generated in one smooth run.
+3) The Prompt Feeding Automata is a Token Triggered Finite Autonoma backend that ZCP bytecode can then be parsed into. It is, in effect, a very primitive computer with a program counter implemented entirely using tensors on the GPU itself. As such, it can support batched flow control involving only self-play tasks on the GPU. Before you scoff, yes, it is prototyped; it does work. Everything is generated in one smooth run. Users should almost never have to deal with this, and it is so simple it is easy to formally verify.
 
-Learning from previous generations of mistakes, these are deliberately interchangable; you can write your own prompting parser if it compiles down to ZCP, or your own TTFA if you need more capabilities. Additionally, while support is only planned for Torch at first, you may easily write your own backend systems in other frameworks; any framework with numpy indexing behavior should be compatible.
+Learning from previous generations of mistakes, these are deliberately interchangable; you can write your own prompting parser if it compiles down to ZCP, or your own TTFA if you need more capabilities. Additionally, while support is only planned for Torch at first, you may easily write your own backend systems in other frameworks; any framework with numpy indexing behavior should be compatible. The system operates on a  in which one workflow can take the same batch through multiple branching flow control decisions. Multiple Workflow, Multiple Streams is possibl in theory, but much more complicated to test, and so is currently not planned.
 
-Extraction technology is also included with the package, with
-the ability to tag zones then extract a sequence of all tags
-in order planned. Note that tool usage is NOT explicitly
-supported at the moment, as the backend is designed for rapid
-bulk generation of samples and waiting in python for tool
-responses would stall this process. Extensions which have been mapped out as feasable by additional modules, without modification to the above, include
 
-* Multiagentic support, though this only works in stateful models like Mambda and RWKV; no transformers. That restriction does not apply to everything else, however. Extensions are required in UDPL, which is minor, and an additional independent TTFA is needed which stores and returns the active agent state for each step
-* Tool usage training. Once we have multiagent support, it is easy to simulate tool results by having another agent be prompted to simulate a response.
-* Eval time tool usage. At the moment, I do not need it, but
-  it would be perfectly feasable to include a flag in the language that set tool usage as allowed. However, this will likely require a separate backend, as though UDPL, SACS, and ZCP are perfectly capable of expressing these requests, deployment-state tool usage
-  does not 
 
-Implemenetation of these will depend on community interest, as
+### Why does UDPL and SFCS exist
 
-### Why does UDPL and SACS exist
-
-UDPL and SACS are together two domain specific languages 
+UDPL and SFCS are together two domain specific languages 
 intended to make the process of defining prompt workflows 
 much more straightforward. It is a set of innovations that,
 together, make up a compiler for prompting that is far more
@@ -66,19 +66,21 @@ or more complex tasks with a lot of work, but you cannot
 do both.Simple single purpose libraries can get common jobs done
 quite easily, but are not very powerful on variations. Meanwhile, the lower level libraries such as Microsoft's 'Guidance' are powerful but require excessive manual and often brittle loading of code resources and segments, making pivots during research or tuning unnecessarily difficult. 
 
-This is unnecessary. C++ is a very powerful language that nonetheless can be compiled down to something small and very fast; this is the approach taken here. UDPL allows you to specify chains of prompts to feed with 'tagging' for automatic extraction of texts later, and SACS is a simple flow control system that captures the flow control graphs and their requirements in a manner that can then be lowered into
+This is unnecessary. C++ is a very powerful language that nonetheless can be compiled down to something small and very fast; this is the approach taken here. UDPL allows you to specify chains of prompts to feed with 'tagging' for automatic extraction of texts later, and SFCS is a simple flow control system that captures the flow control graphs and their requirements in a manner that can then be lowered into
 ZCP. Every effort has been taken to ensure all portions of the pipeline are human readable and easy to grok at a glance - for instance, activating flow control means making an indented flow region in python like normal if you are following standard workflow forge linting protocols.
 
-The **Universal Prompting Declarative Language** is a human-readable TOML file that defines sequences of prompts to feed and then generate in response to, and also defines tagging information that lets you assign tags to text regions; these tags can then be declared as required for extraction later on in SACS. 
+The **Universal Prompting Declarative Language** is a human-readable TOML file that defines sequences of prompts to feed and then generate in response to, and also defines tagging information that lets you assign tags to text regions; these tags can then be declared as required for extraction later on in SFCS. 
 
-The**Straightforward Agentic Control System** is intended to allow display of python-like flow control, and configuration that develops a static flow control graph and invokes UPDL sequences in each flow block. Tag extraction is also specified as part of the process. Maximal effort has been placed on ease of reading, writing, and reasoning through these languages.
+The**Straightforward Flow Control System** is intended to allow display of python-like flow control, and configuration that develops a static flow control graph and invokes UPDL sequences in each flow block. Tag extraction is also specified as part of the process. Maximal effort has been placed on ease of reading, writing, and reasoning through these languages.
 
 These two frontend languages together are intended to provide a new foundation for defining flow control and prompts. They are, I hope, useful to others as well.
 
 ### What is ZCP?
 
+It should be emphasized, first, that as far as the user is concerned they never have to see ZCP.
+
 The Zone Control Protocol is an intermediate stage that is
-at the core of the SACS system. The smallest unit of 
+at the core of the SFCS system. The smallest unit of 
 instruction is the Zone. A Zone has an optional sequence
 of tokens to feed while teacher forcing, a token to listen
 for to move onto the next zone, and sometimes a token to listen
@@ -87,7 +89,7 @@ other details.
 
 The Zone Control Protocol is a graph of these zones that 
 walks us through the flow control, as originally defined
-in the SACS system. If anyone wants to worry about visualizing
+in the SFCS system. If anyone wants to worry about visualizing
 this, it is the best low-level place to look when debugging.
 
 ### What is the Prompt Feeding Automata
@@ -152,7 +154,7 @@ Basically, already in progress or ready to get quite serious.
 
 * UDPL parser - V0.1 done, but needs to be reconfigured after 
   adding flow control.
-* SACS - Outlined, graph theory corrolation between inline flow
+* SFCS - Outlined, graph theory corrolation between inline flow
   and flow control mapped
 * ZCP - V0.1 done, but again needs to be reconfigured after
   adding flow control.
@@ -177,7 +179,7 @@ distinguished:
 
 ## Error Handling
 
-The UDPL and SACS language come with a formal specification of what 
+The UDPL and SFCS language come with a formal specification of what 
 they can and cannot do, and under what conditions.
 This makes it straightforward to write parsing logic that
 does rigorous error checking; writing a config that has the
@@ -195,7 +197,7 @@ of the generated text afterward.
 WF supports genuine flow control—though 
 differently than traditional programming languages.
 You define logical control structures 
-(loops, conditionals, etc.) using SACS in 
+(loops, conditionals, etc.) using SFCS in 
 a familiar programming style, and these compile
 down to an FSM (Finite State Machine).
 
@@ -204,7 +206,7 @@ to decide whether to emit special tokens
 (such as `[Jump]`) or treat them as no-operations.
 When emitted, these tokens trigger transitions within 
 the FSM according to the paths pre-defined by your
-SACS structure.
+SFCS structure.
 
 To support this, it must be noted that you should
 be, when defining your flow control, selecting
@@ -385,9 +387,9 @@ to incorporate feedback are also possible. See the Resources
 documentation for more details on how to use this and how
 they work.
 
-### Straightforward Agentic Control System
+### Straightforward Flow Control System
 
-The Straightforward Agentic Control System, SACS, or 'sacks'
+The Straightforward Agentic Control System (SFCS)
 is designed to both define flow control in terms of prompts 
 in as simple and straightforward pythonic way as possible while at the same 
 time supporting flow control ideas such as loops, conditions
@@ -443,7 +445,7 @@ program.extract(name="feedback",
                 tags = ["Feedback"])
 
 # Compile the program. 
-controller_factory = program.compile(backend="PFA")
+controller_factory = program.compile(backend="default")
 ```
 
 ### Deployment by Backend

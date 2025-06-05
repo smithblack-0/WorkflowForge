@@ -226,7 +226,7 @@ program.extract(name="feedback",
                 tags = ["Feedback"])
 
 # Compile the program. 
-controller_factory = program.compile(backend="PFA")
+controller_factory = program.compile(backend="PFA.md")
 ```
 
 **Once compiled, running hundreds of autonomous workflows is trivial** 

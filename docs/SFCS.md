@@ -36,7 +36,7 @@ program = forge.new_program(sequences, resources,
                             config, tokenizer)
 ```
 
-## Programs
+## Programs: Under the hood.
 
 A program is a sequence of linked lists which is being constructed in ZCP, and which ultimately will be compiled into bytecode for the TTFA. 
 
@@ -46,11 +46,13 @@ Flow control, meanwhile, is handled carefully by SFCS by means of having special
 
 The running process is, ultimately then, a finite state machine that either steps to the next state in the linked list under nominal processing when the zone advance token is needed, then runs the instruction. Or, it may be triggered by flow control and jump to a specified node. This is more or less the entire ZCP intermediate language.
 
+It should be clarified that, in practice, blocks and sequences decompose into a linked list of individual zones. Stitching these together based on flow control occurs here.
+
 ### Compiling
 
 Compiling takes the ZCP language, samples the researchers, tokenizes the results, converts them into tokens, and loads them into the backend as a sequence of instructions, and a sequence of token sources. The instructions contain begin and end offsets to stream tokens from.
 
-## Universal Commands
+## Commands
 
 Commands tell the model to do something during generation, whether it be flow control or otherwise. Most commands interact with prompts, and Prompt Command commands share certain properties. 
 
@@ -251,7 +253,7 @@ with program.loop("loop", min=3, max=6) as loop:
         else_branch.run("Think")
 program.run("Summarize")
 program.extract(name="output", tags =["output"])
-controller_factory = program.compile(backend="PFA")
+controller_factory = program.compile(backend="PFA.md")
 ```
 
 Later on in the main training loop we can do:
@@ -278,3 +280,43 @@ program.extract(name="audit_trail", tags=["audit", "output"])
 
 Tags are actually specialized auxiliary information indicated in each ZCP node. Compiling turns them into tensor representations, and every TTFA timestep returns as well what tags are active in the zone. This naturally lets us build up a collection of bool arrays that can be vector-manipulated later into something we can index to get the tagged regions out.
 
+## Tool usage
+
+Tool usage is handled by an auxiliary structure in which you define a tool in terms of it's callback that accepts a string, and then can execute some special commands to integrate with it. One important limitations exists however.
+
+**Input buffer**: There is one statically sized input buffer for the state machine backend, per batch, to hold the results of the tool calls in. Calling new tools will overwrite this result. 
+**Capture**: A procedural capture mechanism exists to capture tool calls, where the last zone of an entire sequence is captured from. This capture is sent onto a tool, that dumps into the input buffer. 
+
+### Setup
+
+To setup a tool, you declare its existance in the main program. Note that you have to setup the tools buffer size first as well.
+
+```python
+import workflow_forge as forge
+resources = make_my_resources()
+sequences, config = forge.parse_udpl_file('my_file.toml')
+tokenizer = make_my_tokenizer(config)
+program = forge.new_program(sequences, resources,
+                            config, tokenizer)
+
+toolbox = program.new_toolbox(input_buffer_size=100000, 
+                              output_buffer_size=10000)
+```
+
+Using the tool is then a matter of using the .capture and .feed commands
+
+```python
+tool = toolbox.setup_tool(user_gui_callback)
+
+program.run(sequence = "Setup")
+with program.loop("loop", min=3, max=6) as loop:
+    loop.capture("Ask", tool)
+    loop.feed("Answer")
+program.run("Summarize")
+program.extract(name="output", tags =["output"])
+controller_factory = program.compile(backend="PFA.md")
+```
+
+**Transitions**
+
+Under the hood, input and output states are being marked on the final zones of particular sequences in ZCP. Eventually, that gets compiled into the finite state machine backends in the ways that matter.

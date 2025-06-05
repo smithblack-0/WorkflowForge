@@ -4,7 +4,7 @@ parsing the toml into its individual
 pieces, factories, and resource specs
 """
 import string
-import tomli
+import toml
 import re
 
 from ..prompt_logic import ZoneFactoryStub, ResourceSpec

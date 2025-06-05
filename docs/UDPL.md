@@ -44,7 +44,7 @@ The outcome of parsing a valid UDPL file or folder is
 a specification indicating what to feed, and in what
 order, but lacking any indications of what to do when
 flow control is encountered. This must later be
-programmed in using SACS to produce an actual ZCP
+programmed in using SFCS to produce an actual ZCP
 IR graph. A dictionary of Zone Sequences is what is
 ultimately constructed and returned when parsing.
 
@@ -153,7 +153,7 @@ escape_token = "[Escape]"
 ```
 
 - `zone_tokens` defines the edge of each zone.
-  Zones are the spans between each pair of tokens.
+  Zones are the spans between each pair of tokens. A fully generated block must contain these tokens in order to be valid.
 - `required_tokens` lists tokens that must be present
   in every blocks text feature as part of the prompt.
 - `valid_tags` are the labels that can be attached
@@ -228,7 +228,7 @@ blocks are repeated, tagged, or filled dynamically.
   the corresponding zone. The number of sublists must
   be exactly one less than the number of `zone_tokens`
   declared in the config. This is due again to the fact
-  that zones are the text between the zone edges.
+  that zones are the text between the zone edges. This may sometimes be replaced with tagsets, see below.
 
 #### Optional Fields
 
@@ -315,7 +315,7 @@ arguments = { num_samples = 3 }
 ```
 
 Each resource must return a string when invoked. If a
-block is repeated, the resource is resampled each time.
+block is repeated, the resource is resampled each time. Resources will be sampled when the ZCP is compiled at the start of each batch. This means no dynamic sampling during the batch, but also means dynamic changes and feedback between batches are possible.
 
 #### Advanced: Resource Types
 
@@ -626,7 +626,7 @@ resources["constitution_details"] = forge.StringListSampler(my_details)
 sequences, config, tag_converter = forge.parse_udpl_file('prompts.toml', resources)
 ```
 
-If you are using the SACS flow control system, this could then be continued into a tagging and extraction program that compiles to the ZCP IR. This is straightforward
+If you are using the SFCS flow control system, this could then be continued into a tagging and extraction program that compiles to the ZCP IR. This is straightforward
 
 ```python
 program = forge.new_program(sequences, resources, config, tokenizer)
