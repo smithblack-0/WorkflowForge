@@ -6,7 +6,7 @@ import os
 import parsing
 import torch
 from prompt_logic import PromptSequenceFactory
-from resources import AbstractResource
+from src.workflow_forge.Parsers.resources import AbstractResource
 from typing import Dict, Optional, Callable, Tuple, Any
 from src.CE.SUPS.preprocessing.tags import TagConverter
 

@@ -1,8 +1,8 @@
 import torch
 from torch import nn
 from dataclasses import dataclass
-from typing import Dict, List, Any, Optional, Tuple, Callable
-from .resources import AbstractResource
+from typing import Dict, List, Any, Optional, Callable
+from src.workflow_forge.Parsers.resources import AbstractResource
 
 
 @dataclass

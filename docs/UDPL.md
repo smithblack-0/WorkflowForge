@@ -2,100 +2,28 @@
 
 ## What is this?
 
-This is the official specification for v1 of the 
-UDPL prompting language. Linters and the ZCP compilers
-should conform to this spec.
+This is the official specification for v1 of the UDPL prompting language. Linters and the ZCP compilers should conform to this spec.
 
 ## Overview 
 
-The Universal Declarative Prompting Language (UDPL)
-is a TOML-based configuration format for defining
-structured prompting sequences used in large language
-model workflows. It allows developers to declaratively
-specify sequences of prompt blocks, organize them into
-zones (like [Prompt]...[Answer]), attach semantic tags,
-and inject dynamic content using named placeholders.
+The Universal Declarative Prompting Language (UDPL)\is a TOML-based configuration format for defining structured prompting sequences used in large language model workflows. It allows developers to declaratively specify sequences of prompt blocks, organize them into zones (like [Prompt]...[Answer]), attach semantic tags, and inject dynamic content using named placeholders.
 
-Each UDPL file defines a set of named sequences, where
-each sequence contains a series of prompt blocks. A
-block consists of a predictable sequence of 
-a multi-zone regions squeezed between special tokens,
-and may specify up to all zones that were defined in the UDPL 
-config section. This can be used to teacher-force the 
-prompt.
+Each UDPL file defines a set of named sequences, where each sequence contains a series of prompt blocks. A block consists of a predictable sequence of a multi-zone regions squeezed between special tokens, and may specify up to all zones that were defined in the UDPL config section. This can be used to teacher-force the prompt.
 
-Alternatively, by leaving the special tokens indicating
-zone transitions outside the prompt string you may let the 
-model generate this region instead. This allows 
-fine-grained control over when prompting
-ends and generation begins — entirely from the config file.
+Alternatively, by leaving the special tokens indicating zone transitions outside the prompt string you may let the model generate this region instead. This allows fine-grained control over when prompting ends and generation begins — entirely from the config file.
 
 In addition to prompt structure, UDPL supports:
 
-- Zone tagging, which enables selective extraction of
-  generated outputs (e.g., for training, evaluation,
-  or feedback)
-- Placeholder resolution, using resource-backed
-  dynamic fill-in at ZCP.
-- Repeat and tagset patterns, for efficient contrastive
-  or curriculum-style data generation
+- Zone tagging, which enables selective extraction of generated outputs (e.g., for training, evaluation, or feedback)
+- Placeholder resolution, using resource-backed dynamic fill-in at ZCP.
+- Repeat and tagset patterns, for efficient contrastive or curriculum-style data generation
 
-The outcome of parsing a valid UDPL file or folder is
-a specification indicating what to feed, and in what
-order, but lacking any indications of what to do when
-flow control is encountered. This must later be
-programmed in using SFCS to produce an actual ZCP
-IR graph. A dictionary of Zone Sequences is what is
+The outcome of parsing a valid UDPL file or folder is a specification indicating what sequences exist, but lacking any indications of what to do when flow control is encountered. This must later be programmed in using SFCS to produce an actual ZCP IR graph. A dictionary of Zone Sequences is what is
 ultimately constructed and returned when parsing.
 
-While this language is intended to work with the
-WorkflowForge systems, others are encouraged to perform
-pull requests to make their own extensions for
-their particular use cases; we hope UDPL can become
-an industry standard for better prompting configuration.
-
-
+While this language is intended to work with the WorkflowForge systems, others are encouraged to perform pull requests to make their own extensions for their particular use cases; we hope UDPL can become an industry standard for better prompting configuration.
 
 UDPL itself does not define control flow — it is consumed by downstream systems that run prompts linearly or with flow control. Its design supports both use cases equally, and serves as a flexible frontend for declaratively configuring prompt-based generation.
-
-
-The Universal Declarative Preprocessing Language is a domain-specific language
-intended to elegantly support sequential prompting workloads for NLP 
-processes and also provide information which can subsequently be used to
-extract relevant regions of text. 
-
-
-
-
-The preprocessing mechanism for this generation of models is responsible
-for elegantly resolving dynamic dependencies, alternating between 
-generative and prompting states, and performing other relevant prompt
-construction and generation actions.
-
-This is accomplished using a zone-based config language that is designed
-to feed a human-readable set of blocks into the generative stages of
-the model. Each zone can have separate tags attached that then
-may separately encode various tags that belong in those zone. Each 
-block is assumed to go through a cycle of generating or being prompted
-from all zones. Zones which are not fully defined by the user are instead
-generated by the model, up to the generation limit.
-
-Putting these together, we divided up the prompting and preprocessing
-control system into two portions. T
-
-- A configuration frontend consisting of a small DSL config
-  language which lets you define, in order, the prompting sequence
-  to give and define placeholders to be dynamically filled by 
-  backend resources using the indicated arguments.
-- A backend system consisting of objects we call 'resources'
-  which are used to service these placeholder requests. The resources
-  should be combined together into a service dictionary.
-
-With this mechanism, we can define resources to consistently 
-return the same string, as in a consitution overview, sample from
-options, or even be a feedback resource which can be updated by
-downstream logic using side effects, providing a flexible solution
-which is not implementation dependent on the resources themselves.
 
 ## Terminology
 
@@ -127,6 +55,9 @@ terms in mind:
   block to enable selective extraction of generated
   tokens for training, evaluation, or filtering.
 
+- Flow Control Token: A special token such as '[Jump]' that can be defined in order to make manipulations happen in SFCS. **DANGER** unless escaped, flow control in teacher-forcing prompts are executed immediately, breaking the prompt.
+
+- Escape Token: A special token such as '[Escape]' which can be defined to make the MOA skip the next transition instruction. Very useful for telling the model what token to emit next.
 
 ## Config
 
@@ -174,9 +105,61 @@ later on if you do not provide singular special tokens
 in your tokenizer corresponding to this configuration.
 
 If desired, additional entries can be parsed into 
-you config and will be returned in a ZoneConfig
-dataclass under the .misc feature. You may consider
-putting hyperparameters and other features here.
+you config. All entries in the config are returned as named by the Config object parsing generates. Additionally, the misc folder contains the raw toml parse if you have extra terms you want to place into your config.
+
+### Linting/Parsing conditions
+
+* Is zone_tokens present? Is it a list of strings? Is it nonempty? Is it of length at least two?
+* Is required tokens present? Is it a list of strings? Is it nonempty? Are all required tokens in zone tokens?
+* Is valid_tags present? Is it a list? Warn if empty
+* Is default_max_token_length present? Is it an integer > 0?
+* Is sequences present? Is it a list? Does the list contain strings and is nonempty? 
+* Is control_token present? Does it contain a string? Is that string nonempty?
+* Is escape_token present? Does it contain a string? Is that string nonempty?
+
+### Config Object
+
+The config object has fields which have been covered:
+
+- zone_tokens
+- required_tokens
+- valid_tags
+- default_max_token_length
+- sequences
+- control_token
+- escape_token
+
+It also has the additional features
+
+- special_tokens: A list of all special tokens needed based on the config. 
+- misc: The raw parsed toml. Use it to get your custom values for setup purposes and centralize your config.
+
+## Sequences
+
+A Sequence is a list of blocks - more on that shortly - which together makes up a feed of prompt instructions that we are declaring we want to follow. Sequences have the restriction that for every sequence declared in the config, a sequence with blocks attached must actually exist. When a sequence is parsed, it produces an unlowered ZCP zone chain as a linked list with no flow control. What is actually returned by the UDPL parser is the aforementioned config, and a dictionary of sequences to these chains.
+
+### TOML
+
+To declare a sequence in toml, first make sure there is a valid sequence entry in the config. Then use the [[list]]toml indicator in order to indicate what to put the list on and in what order. As a simple example, the following would make a toml file with a dictionary called example filled with {item : 1} and then {item : 2}.
+
+```toml
+
+[[example]]
+item = 1
+
+[[example]]
+item=2
+```
+Naturally, the above is not valid UDPL. You would have to specify example as a sequence in the config, and then define valid blocks. Lets talk about blocks now.
+
+### Linting/Parser
+
+For each sequence in the config
+
+* Does the sequence exist at the TOML top level data? 
+* Does the sequence resolve to a list?
+* For each element in the list invoke the block parser/linter and check validity
+* If constructing ZCP by parsing, merge the linked list between steps.
 
 ## Blocks
 

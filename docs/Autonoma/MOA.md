@@ -19,6 +19,7 @@ One general feature that is not correlated is:
 There are only a few state values of any concern
 
 * Program_Counter: Per batch, what the program counter through the instructions are
+* Escape: Per batch flag. If an escape token was seen, it negates the next instruction then resets.
 
 ### Feeders
 
@@ -46,11 +47,11 @@ All tokenized information was flattened into a single large array and concatenat
 
 ### Program
 
-A program then consists of loading a PTA with all of this information. All other complexity is exported to the compiler chain, and fortunately ZCP is isomorphic with flatted jump flow control.
+A program then consists of loading a MOA with all of this information. All other complexity is exported to the compiler chain, and fortunately ZCP is isomorphic with flatted jump flow control.
 
 ## Usage.
 
-When used, the PTA accepts only
+When used, the MOA accepts only
 
 * Tokens: A "B" shaped batch of tokens from each batch predicted by the model
 
@@ -74,12 +75,13 @@ Claims array being true will mean that token was already claimed by something ea
 
 On transitioning to a new zone, the feeding pattern transition mentioned above is setup. These transitions themselves need discussion. Transitions to a new zone can be triggered by one of the following.
 
-* Zone transition. The Step_Trigger token we were listening for was noticed.
+* If a transition token is noticed and esape is set, skip that instruction and set escape to false.
+* Zone transition. The Step_Trigger token we were listening for was noticed. 
 * Flow Control. The Jump token is noticed, causing us to dereference the jump destination and change state to load that location.
 
 Finally, when paging off of the end of the program counter the program is done and will only produce padding tokens. Once all
 program counters are done, the .done() call will resolve to true.
 
-## Inputs
+## Debugging
 
-A special method accepting a batch number and a 1d token list can be used to load the input stream. Needless to say, using this function tends to block generation.
+When set in debugging mode, the above will also emit a resolution map indicating, by index, which of the kernel extensions is resolving each individual token. Count starts at zero, and falling all the way through ends up at the length of the number of kernel extensions. Otherwise, this is not emitted. 

@@ -23,15 +23,17 @@ Finally, there are some states too of course
 
 Transitions occur first. They occur in this order
 
-* If PC changed:
-  * Set pointer to start offset
-* copy feed pointer directly from state pointer (use tensor.clone())
-* Advance state pointer 
+* If unclaimed
+  * If PC changed:
+    * Set pointer to start offset
+  * copy feed pointer directly from state pointer (use tensor.clone())
+  * Advance state pointer
 
 ## Feeding
 
 While we have not yet reached the end_offset, we:
 
-* Claim only if end_offset >feed_pointer
-  * Feed token_data[feed_pointer] 
-* Pass through unchanged otherwise.
+* If unclaimed
+  * Claim only if end_offset > feed_pointer
+    * Feed token_data[feed_pointer] 
+  * Pass through unchanged otherwise.

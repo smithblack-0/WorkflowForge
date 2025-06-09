@@ -3,8 +3,9 @@ Resource parsing logic parses, naturally,
 something and turns them into resources
 """
 import os
-from ..resources import AbstractResource, ListSamplerResource, StringResource
-from typing import Dict, List, Tuple
+from src.workflow_forge.Parsers.resources import AbstractResource, ListSamplerResource, StringResource
+from typing import Dict
+
 
 def parse_constitution(file_path: str)->Dict[str, AbstractResource]:
     """

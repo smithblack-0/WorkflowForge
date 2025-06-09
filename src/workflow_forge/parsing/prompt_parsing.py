@@ -7,8 +7,7 @@ import string
 import toml
 import re
 
-from ..prompt_logic import ZoneFactoryStub, ResourceSpec
-from ..tags import TagConverter
+from src.workflow_forge.preprocessing.prompt_logic import ZoneFactoryStub, ResourceSpec
 from typing import List, Tuple, Dict, Any, Callable
 from dataclasses import dataclass
 

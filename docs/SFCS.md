@@ -253,7 +253,7 @@ with program.loop("loop", min=3, max=6) as loop:
         else_branch.run("Think")
 program.run("Summarize")
 program.extract(name="output", tags =["output"])
-controller_factory = program.compile(backend="PFA.md")
+controller_factory = program.compile(backend="default")
 ```
 
 Later on in the main training loop we can do:
@@ -314,7 +314,7 @@ with program.loop("loop", min=3, max=6) as loop:
     loop.feed("Answer")
 program.run("Summarize")
 program.extract(name="output", tags =["output"])
-controller_factory = program.compile(backend="PFA.md")
+controller_factory = program.compile(backend="default")
 ```
 
 **Transitions**

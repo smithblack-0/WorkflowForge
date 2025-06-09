@@ -7,7 +7,6 @@ configuration, as does the underlying sampling
 mechanism.
 """
 
-import torch
 from abc import ABC, abstractmethod
 from typing import List, Union
 
