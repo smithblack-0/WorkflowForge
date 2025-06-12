@@ -17,7 +17,7 @@ The module provides two levels of representation:
 """
 from ..resources import AbstractResource
 from dataclasses import dataclass
-from typing import Optional, List, Callable, Dict
+from typing import Optional, List, Callable, Dict, Any
 import numpy as np
 
 
@@ -33,8 +33,9 @@ class ZCPNode:
     Attributes:
         sequence: Name of the sequence this zone belongs to (used during construction)
         block: Block number within the sequence (used during construction)
-        sampling_callbacks: Function that resolves all placeholders to their value when invoked
+        construction_callback: Function that resolves all placeholders to their value when invoked
          with the resource collection.
+        raw_text: The text involved.
         next_zone: Pointer to the next zone in the execution chain
         zone_advance_token: Token that triggers advancement to next_zone
         tags: List of string tags for this zone (used for extraction)
@@ -46,7 +47,9 @@ class ZCPNode:
     """
     sequence: str
     block: int
-    sampling_callbacks: Callable[[Dict[str, AbstractResource]], Dict[str, str]]
+    resource_specs: Dict[str, Dict[str, Any]]
+    construction_callback: Callable[[Dict[str, AbstractResource]], str]
+    raw_text: str
     zone_advance_token: str
     tags: List[str]
     timeout: int

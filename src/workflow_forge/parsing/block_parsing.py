@@ -12,7 +12,8 @@ and orchestrate their processing. This includes:
 - Returning the head of the chain
 """
 
-from typing import Dict, Any, List, Callable, TypedDict
+from typing import Dict, Any, List, Callable
+from dataclasses import dataclass
 import re
 import warnings
 from ..ZCP.nodes import ZCPNode
@@ -24,7 +25,8 @@ class BlockParseError(Exception):
     pass
 
 
-class ZoneInfo(TypedDict):
+@dataclass
+class ZoneInfo:
     """Structure passed to zone processor containing zone-specific information."""
     advance_token: str  # Token that triggers advancement from this zone
     zone_text: str      # Raw text content for this zone (may include placeholders)
@@ -33,7 +35,7 @@ class ZoneInfo(TypedDict):
     block_index: int    # Index of the block within the sequence
     zone_index: int     # Index of this zone within the block
     max_gen_tokens: int # Maximum tokens this zone can generate
-
+    block_data: Dict[str, Any]  # Full block data for resource spec lookup
 
 # Type alias for the zone parser function signature
 ZoneParser = Callable[[ZoneInfo, Config], ZCPNode]
@@ -103,7 +105,8 @@ def parse_block(
                     sequence_name=sequence_name,
                     block_index=block_index,
                     zone_index=overall_zone_index,
-                    max_gen_tokens=max_gen_tokens
+                    max_gen_tokens=max_gen_tokens,
+                    block_data=block_data  # Pass full block data for resource spec access
                 )
 
                 # Call zone parser to get ZCP node
@@ -223,22 +226,50 @@ def parse_text_into_zones(text: str, config: Config) -> List[Dict[str, str]]:
     Raises:
         BlockParseError: If text validation fails
     """
-    # Create regex pattern to match and split on zone tokens
-    pattern = "|".join(re.escape(token) for token in config.zone_tokens)
+    # Use regex to split on any special token.
+    #
+    # We have to account for the fact that escape tokens
+    # can escape zone edges too, or not, which makes this complex.
 
-    # Use regex to split, keeping the delimiters (zone tokens)
+    pattern = "|".join(re.escape(token) for token in config.special_tokens)
     splits = re.split(f"({pattern})", text)
 
-    # Basic validation - need at least 3 splits for any zones
+    # Basic validation - need at least 3 splits for any zones to even be possible
     if len(splits) < 3:
         raise BlockParseError("Text must contain at least one zone token")
 
-    # Split into zone tokens, zones, ensure initial zone is empty, validate
-    # tokens exist sanely.
+    # Split up into intial zone configuration.
 
-    zone_contents = splits[0::2]
-    zone_tokens = splits[1::2]
-    zone_contents[0] = ""
+    contents = splits[0::2]
+    control_tokens = splits[1::2]
+
+    # We split on all control tokens. However, some control other processes,
+    # that may have been escaped. We merge sections back together to get
+    # the actual active zones, and skip zone construction when
+    # escaped.
+
+    zone_contents = []
+    zone_tokens = []
+    is_first_zone_done = False
+    is_escaped = False
+    current_string = ""
+    for content, control_token in zip(contents, control_tokens):
+
+        if is_escaped is True:
+            current_string += content+control_token
+            is_escaped = False
+        else:
+            current_string += content + control_token
+            if control_token in config.zone_tokens:
+                if not is_first_zone_done:
+                    current_string = control_token
+                    is_first_zone_done = True
+                zone_contents.append(current_string)
+                zone_tokens.append(control_token)
+                current_string = ""
+            elif control_token == config.escape_token:
+                is_escaped = True
+    zone_contents.append(contents[-1])
 
     if len(zone_tokens) < len(config.required_tokens):
         raise BlockParseError("Not enough zone tokens in block to meet required tokens")

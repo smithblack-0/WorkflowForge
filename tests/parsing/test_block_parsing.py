@@ -195,15 +195,15 @@ class TestTextParsing(unittest.TestCase):
 
         # Check first zone (triggered by [Prompt])
         self.assertEqual(result[0]["advance_token"], "[Prompt]")
-        self.assertEqual(result[0]["zone_text"], "")  # Initial zone is empty
+        self.assertEqual(result[0]["zone_text"], "[Prompt]")  # Initial zone is empty
 
         # Check second zone ([Prompt] -> [Answer])
         self.assertEqual(result[1]["advance_token"], "[Answer]")
-        self.assertEqual(result[1]["zone_text"], " What is AI? ")
+        self.assertEqual(result[1]["zone_text"], " What is AI? [Answer]")
 
         # Check third zone ([Answer] -> [EOS])
         self.assertEqual(result[2]["advance_token"], "[EOS]")
-        self.assertEqual(result[2]["zone_text"], " AI is artificial intelligence. ")
+        self.assertEqual(result[2]["zone_text"], " AI is artificial intelligence. [EOS]")
 
     def test_partial_zones_valid(self):
         """Test parsing text with all required tokens but missing optional ones."""
@@ -213,9 +213,9 @@ class TestTextParsing(unittest.TestCase):
 
         self.assertEqual(len(result), 3)  # Still 3 zones total
         self.assertEqual(result[0]["advance_token"], "[Prompt]")
-        self.assertEqual(result[0]["zone_text"], "")  # Initial zone empty
+        self.assertEqual(result[0]["zone_text"], "[Prompt]")
         self.assertEqual(result[1]["advance_token"], "[Answer]")
-        self.assertEqual(result[1]["zone_text"], " What is AI? ")
+        self.assertEqual(result[1]["zone_text"], " What is AI? [Answer]")
         self.assertEqual(result[2]["advance_token"], "[EOS]")
         self.assertEqual(result[2]["zone_text"], " AI is intelligence.")  # Gets remaining text
 
@@ -249,11 +249,11 @@ class TestTextParsing(unittest.TestCase):
             sequences=["test"],
             control_token="[Jump]",
             escape_token="[Escape]",
-            special_tokens=["[Prompt]", "[Answer]", "[Jump]", "[Escape]"],
+            special_tokens=["[Prompt]", "[Answer]", "[EOS]", "[Jump]", "[Escape]"],
             misc={}
         )
 
-        text = "[Prompt] test [Answer] response [Answer] [EOS]"  # [EOS] not in config
+        text = "[Prompt] test [Answer] response [EOS] [Answer]"  # [EOS] not in config
 
         with self.assertRaises(BlockParseError) as context:
             parse_text_into_zones(text, config_with_few_tokens)
@@ -276,10 +276,32 @@ class TestTextParsing(unittest.TestCase):
         result = parse_text_into_zones(text, self.config)
 
         self.assertEqual(len(result), 3)  # 3 zones for 3 tokens
-        self.assertEqual(result[0]["zone_text"], "")  # Initial zone
-        self.assertEqual(result[1]["zone_text"], "")  # Empty between [Prompt] and [Answer]
-        self.assertEqual(result[2]["zone_text"], "")  # Empty between [Answer] and [EOS]
+        self.assertEqual(result[0]["zone_text"], "[Prompt]")  # Initial zone
+        self.assertEqual(result[1]["zone_text"], "[Answer]")  # Empty between [Prompt] and [Answer]
+        self.assertEqual(result[2]["zone_text"], "[EOS]")  # Empty between [Answer] and [EOS]
 
+    def test_escaped_zone_token(self):
+        """Test that escaped zone tokens become literal text instead of zone boundaries."""
+        text = "[Prompt] This has [Escape] [Answer] in the middle [Answer] Real answer here."
+
+        result = parse_text_into_zones(text, self.config)
+
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result[0]["zone_text"], "[Prompt]")
+        self.assertEqual(result[1]["zone_text"], " This has [Escape] [Answer] in the middle [Answer]")
+        self.assertEqual(result[2]["zone_text"], " Real answer here.")
+
+
+    def test_escaped_flow_control_token(self):
+        """Test that escaped flow control tokens become literal text."""
+        text = "[Prompt] Use [Escape] [Jump] to escape, then [Answer] Real answer."
+
+        result = parse_text_into_zones(text, self.config)
+
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result[0]["zone_text"], "[Prompt]")
+        self.assertEqual(result[1]["zone_text"], " Use [Escape] [Jump] to escape, then [Answer]")
+        self.assertEqual(result[2]["zone_text"], " Real answer.")
 
 class TestTagsValidation(unittest.TestCase):
     """Test tags, tagset, and repeats validation and processing."""
