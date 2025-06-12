@@ -13,6 +13,7 @@ All notable changes to Workflow Forge will be documented in this file.
 ### Legal
 - Open source release! Documentation and licensing added.
 
+
 ### Added
 - Complete UDPL (Universal Declarative Prompting Language) parsing pipeline and unit tests. Wow, that is a lot of error conditions, but it is thorough enough Linus would be impressed.
 - Comprehensive test suite for UDPL parsing components
