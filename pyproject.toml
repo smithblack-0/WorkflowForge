@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "workflow-forge"
+version = "0.1.0"
+description = "AI models that control their own prompt feeds"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Chris O'Quinn", email = "chrisoquinn.2@gmail.com"}
+]
+maintainers = [
+    {name = "Chris O'Quinn", email = "chrisoquinn.2@gmail.com"}
+]
+keywords = ["ai", "llm", "workflow", "prompting", "automation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "torch>=1.9.0",
+    "numpy>=1.21.0",
+    "toml>=0.10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "coverage>=7.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/smithblack-0/WorkflowForge"
+Documentation = "https://github.com/smithblack-0/WorkflowForge/tree/master/docs"
+Repository = "https://github.com/smithblack-0/WorkflowForge"
+"Bug Tracker" = "https://github.com/smithblack-0/WorkflowForge/issues"
+Changelog = "https://github.com/smithblack-0/WorkflowForge/blob/master/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"workflow_forge" = ["*.toml", "*.md"]
