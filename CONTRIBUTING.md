@@ -14,7 +14,7 @@ Excellent places for improvement.
 -  **Testing & Validation cases** - Particularly in tool usage, about which I know only a bit.
 -  **Documentation** - Examples, tutorials, and API docs
 - **Research Applications** - Novel use cases and benchmark applications.
-
+ 
 ### Getting Started
 1. Read the [Architecture Overview](docs/Overview.md) to understand the system. 
 2. Read the [UDPL Spec](docs/UDPL.md) to understand how UDPL and the declaritive syntax works.
