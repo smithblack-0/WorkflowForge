@@ -24,7 +24,7 @@ class SequenceParseError(Exception):
 def parse_sequences(
     toml_data: Dict[str, Any],
     config: Config,
-    block_parser: Callable[[Dict[str, Any], Config], ZCPNode]
+    block_parser: Callable[[Dict[str, Any], Config, str, int], ZCPNode]
 ) -> Dict[str, ZCPNode]:
     """
     Parse all sequences from TOML data into ZCP node chains.
@@ -32,7 +32,7 @@ def parse_sequences(
     Args:
         toml_data: Raw parsed TOML data
         config: Validated UDPL configuration
-        block_parser: Callable that accepts (block_dict, config) and returns ZCPNode
+        block_parser: Callable that accepts (block_data, config, sequence_name, block_index) and returns ZCPNode
 
     Returns:
         Dictionary mapping sequence names to the head ZCP node of each chain
@@ -76,7 +76,7 @@ def parse_sequences(
                         )
 
                     # Call the block parser to get the head ZCP node for this block
-                    block_head = block_parser(block_data, config)
+                    block_head = block_parser(block_data, config, sequence_name, block_index)
 
                     # Validate block parser returned a ZCP node
                     if not isinstance(block_head, ZCPNode):

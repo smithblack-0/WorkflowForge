@@ -4,7 +4,7 @@ Unit tests for UDPL sequence parsing functionality.
 Tests focus on:
 1. Sequence parsing validation and error handling
 2. Chain construction and linked list attachment verification
-3. Integration with block parser
+3. Integration with block parser (updated for new signature)
 """
 
 import unittest
@@ -145,11 +145,11 @@ class TestSequenceParser(unittest.TestCase):
         self.assertEqual(result["main"], self.mock_node2)
         self.assertEqual(result["conclude"], self.mock_node3)
 
-        # Verify block parser was called correctly
+        # Verify block parser was called correctly with sequence name and block index
         self.assertEqual(mock_block_parser.call_count, 3)
-        mock_block_parser.assert_any_call({"text": "setup block"}, self.config)
-        mock_block_parser.assert_any_call({"text": "main block"}, self.config)
-        mock_block_parser.assert_any_call({"text": "conclude block"}, self.config)
+        mock_block_parser.assert_any_call({"text": "setup block"}, self.config, "setup", 0)
+        mock_block_parser.assert_any_call({"text": "main block"}, self.config, "main", 0)
+        mock_block_parser.assert_any_call({"text": "conclude block"}, self.config, "conclude", 0)
 
     def test_multi_block_sequence_linking(self):
         """Test that multi-block sequences are properly linked into chains."""
@@ -201,6 +201,18 @@ class TestSequenceParser(unittest.TestCase):
         self.mock_node2.get_last_node.assert_called()
         self.mock_node3.get_last_node.assert_called()
 
+        # Verify block parser was called with correct parameters
+        expected_calls = [
+            ({"text": "block1"}, self.config, "setup", 0),
+            ({"text": "block2"}, self.config, "setup", 1),
+            ({"text": "block3"}, self.config, "setup", 2),
+            ({"text": "single block"}, self.config, "main", 0),
+            ({"text": "final block"}, self.config, "conclude", 0)
+        ]
+        for i, expected_call in enumerate(expected_calls):
+            actual_call = mock_block_parser.call_args_list[i]
+            self.assertEqual(actual_call[0], expected_call)
+
     def test_block_parser_exception_propagation(self):
         """Test that exceptions from block parser are properly wrapped."""
         toml_data = {
@@ -209,7 +221,7 @@ class TestSequenceParser(unittest.TestCase):
             "conclude": [{"text": "good block"}]
         }
 
-        def failing_block_parser(block_data, config):
+        def failing_block_parser(block_data, config, sequence_name, block_index):
             if block_data["text"] == "bad block":
                 raise ValueError("Block parsing failed")
             return self.mock_node1
@@ -258,6 +270,19 @@ class TestSequenceParser(unittest.TestCase):
         # Verify conclude chain: c1 (single node)
         self.assertIsNone(nodes[5].next_zone)
 
+        # Verify block parser was called with correct parameters
+        expected_calls = [
+            ({"text": "s1"}, self.config, "setup", 0),
+            ({"text": "s2"}, self.config, "setup", 1),
+            ({"text": "m1"}, self.config, "main", 0),
+            ({"text": "m2"}, self.config, "main", 1),
+            ({"text": "m3"}, self.config, "main", 2),
+            ({"text": "c1"}, self.config, "conclude", 0)
+        ]
+        for i, expected_call in enumerate(expected_calls):
+            actual_call = mock_block_parser.call_args_list[i]
+            self.assertEqual(actual_call[0], expected_call)
+
     def test_all_sequences_processed(self):
         """Test that all sequences in config are processed, none skipped."""
         toml_data = {
@@ -277,6 +302,16 @@ class TestSequenceParser(unittest.TestCase):
 
         # Should have called block parser exactly 3 times (once per configured sequence)
         self.assertEqual(mock_block_parser.call_count, 3)
+
+        # Verify correct parameters were passed
+        expected_calls = [
+            ({"text": "setup"}, self.config, "setup", 0),
+            ({"text": "main"}, self.config, "main", 0),
+            ({"text": "conclude"}, self.config, "conclude", 0)
+        ]
+        for i, expected_call in enumerate(expected_calls):
+            actual_call = mock_block_parser.call_args_list[i]
+            self.assertEqual(actual_call[0], expected_call)
 
 
 if __name__ == "__main__":
