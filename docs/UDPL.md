@@ -128,6 +128,7 @@ The config object has fields which have been covered:
 - sequences
 - control_token
 - escape_token
+- (property) num_zones_per_block.
 
 It also has the additional features
 
@@ -160,6 +161,8 @@ For each sequence in the config
 * Does the sequence resolve to a list?
 * For each element in the list invoke the block parser/linter and check validity
 * If constructing ZCP by parsing, merge the linked list between steps.
+
+
 
 ## Blocks
 
@@ -194,7 +197,16 @@ Each block must define a minimum of two fields:
 Optional fields may also be included to control how
 blocks are repeated, tagged, or filled dynamically.
 
----
+#### Linting
+
+- 'text' must exist and contain strings
+  - 'text' may contain placeholders
+  - These must corrospond to resource calls
+- 'tags' must exist and be a list
+  - This list must be of length num_zones_per_block from config
+  - This list must contain lists.
+    - These lists can be empty, or contain tags. But these tags must be in config tags
+    - 
 
 #### Required Fields
 

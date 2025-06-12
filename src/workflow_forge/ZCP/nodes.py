@@ -85,8 +85,8 @@ class ZCPNode:
         :return: The last node of the chain we could find
         """
         node = self
-        while self.next_zone is not None:
-            node = self.next_zone
+        while node.next_zone is not None:
+            node = node.next_zone
         return node
 
 

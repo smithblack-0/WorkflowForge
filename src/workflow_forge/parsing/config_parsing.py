@@ -18,6 +18,11 @@ class Config:
     typing guarantees of the project.
 
     """
+
+    @property
+    def num_zones_per_block(self) -> int:
+        return len(self.zone_tokens) - 1
+
     zone_tokens: List[str]
     required_tokens: List[str]
     valid_tags: List[str]
@@ -146,6 +151,9 @@ def parse_config(toml_data: Dict[str, Any]) -> Config:
         special_tokens.append(control_token)
     if escape_token not in special_tokens:
         special_tokens.append(escape_token)
+    for token in zone_tokens:
+        if token not in special_tokens:
+            special_tokens.append(token)
 
     # Create Config object
     return Config(
