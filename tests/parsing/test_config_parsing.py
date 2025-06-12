@@ -447,6 +447,14 @@ class TestValidConfigSequences(BaseConfigTest):
             self.assertTrue(issubclass(w[0].category, UserWarning))
 
 
+    def test_num_zones_per_block_calculation(self):
+        """Test that num_zones_per_block correctly calculates zones as len(zone_tokens) - 1."""
+        toml_data = self.get_valid_config()
+        config = parse_config(toml_data)
+
+        # Default config has 3 zone_tokens, so should have 2 zones
+        self.assertEqual(config.num_zones_per_block, 2)
+
 if __name__ == "__main__":
     # Run all tests
     unittest.main(verbosity=2)
