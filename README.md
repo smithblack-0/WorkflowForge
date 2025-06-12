@@ -158,7 +158,7 @@ Pending.
 - 🚧 TTFA execution engine in development
 - 🚧 **Tools** coming up, but will be blocking. 
 
-This is a research-grade tool designed for advanced AI workflow automation. The compilation approach enables capabilities impossible with traditional prompt orchestration.
+This is a production-grade tool designed for advanced AI workflow automation. The compilation approach enables capabilities impossible with traditional prompt orchestration.
 
 ## Philosophy
 
