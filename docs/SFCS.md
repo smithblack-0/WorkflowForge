@@ -50,7 +50,7 @@ It should be clarified that, in practice, blocks and sequences decompose into a 
 
 ### Compiling
 
-Compiling takes the ZCP language, samples the researchers, tokenizes the results, converts them into tokens, and loads them into the backend as a sequence of instructions, and a sequence of token sources. The instructions contain begin and end offsets to stream tokens from.
+Compiling involves scopes. Whenever a context is manager, a new scope is made. Actions can be taken under that scope, and these actions can only ever extend existing ZCP chains. When the context manager closes, it captures the existing ZCP chains that were created in it and combines them together with the appropriate jump and flow control commands. 
 
 ## Commands
 
@@ -189,9 +189,8 @@ program = forge.new_program(sequences, resources,
 
 program.run(sequence = "Setup")
 with program.loop("loop", min=3, max=6) as loop:
-    with loop.if("if_rethink", max=3) as if_branch:
+    with loop.if("if_rethink", max=3) as if_branch, else_branch:
         if_branch.run("Rethink")
-    with if_branch.else() as else_branch:
         else_branch.run("Think")
 program.run("Summarize")
 ```
@@ -216,9 +215,8 @@ program = forge.new_program(sequences, resources,
 subroutine = forge.new_program(sequences, resources,
                                config, tokenizer)
 with subroutine.loop("loop", min=3, max=6) as loop:
-    with loop.if("if_rethink", max=3) as if_branch:
+    with loop.if("if_rethink", max=3) as if_branch, else_branch:
         if_branch.run("Rethink")
-    with if_branch.else() as else_branch:
         else_branch.run("Think")
 
 # Setup the main program
@@ -247,9 +245,8 @@ program = forge.new_program(sequences, resources,
 
 program.run(sequence = "Setup")
 with program.loop("loop", min=3, max=6) as loop:
-    with loop.if("if_rethink", max=3) as if_branch:
+    with loop.if("if_rethink", max=3) as if_branch, else_branch:
         if_branch.run("Rethink")
-    with if_branch.else() as else_branch:
         else_branch.run("Think")
 program.run("Summarize")
 program.extract(name="output", tags =["output"])
@@ -320,3 +317,7 @@ controller_factory = program.compile(backend="default")
 **Transitions**
 
 Under the hood, input and output states are being marked on the final zones of particular sequences in ZCP. Eventually, that gets compiled into the finite state machine backends in the ways that matter.
+
+# Deeper Documentation
+
+Really technical information.

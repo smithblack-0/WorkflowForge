@@ -18,56 +18,156 @@ The module provides two levels of representation:
 from ..resources import AbstractResource
 from dataclasses import dataclass
 from typing import Optional, List, Callable, Dict, Any
+from ..flow_control.tag_converter import TagConverter
 import numpy as np
 
 
 @dataclass
 class ZCPNode:
     """
-    Zone Control Protocol node representing a zone of text in the workflow.
+    Simple Zone Control Protocol node from UDPL parsing.
 
-    This is the high-level representation used during initial compilation from UDPL.
-    ZCP nodes contain string references and callbacks that need to be resolved
-    before lowering to LZCP.
+    Represents a basic linked list of prompt zones with resource metadata.
+    No flow control - just what UDPL can express.
 
     Attributes:
-        sequence: Name of the sequence this zone belongs to (used during construction)
-        block: Block number within the sequence (used during construction)
-        construction_callback: Function that resolves all placeholders to their value when invoked
-         with the resource collection.
-        raw_text: The text involved.
-        next_zone: Pointer to the next zone in the execution chain
-        zone_advance_token: Token that triggers advancement to next_zone
-        tags: List of string tags for this zone (used for extraction)
-        timeout: Maximum tokens to generate before advancing (prevents infinite loops)
-        input: If True, zone feeds from input buffer when prompt tokens exhausted
-        output: If True, zone content is captured for extraction
-        jump_token: Optional token that triggers jump flow control
-        jump_node: Optional target node for jump flow control
+        sequence: Name of UDPL sequence this zone belongs to
+        block: Block number within the sequence
+        resource_specs: Placeholder → resource mapping (unresolved)
+        raw_text: Template text with {placeholder} syntax
+        zone_advance_token: Token that triggers advancement to next zone
+        tags: String tags for extraction (or np.ndarray if converted)
+        timeout: Maximum tokens to generate before forcing advancement
+        next_zone: Next zone in the linked list
     """
     sequence: str
     block: int
     resource_specs: Dict[str, Dict[str, Any]]
-    construction_callback: Callable[[Dict[str, AbstractResource]], str]
     raw_text: str
     zone_advance_token: str
     tags: List[str]
     timeout: int
-    input: bool
-    output: bool
     next_zone: Optional['ZCPNode'] = None
-    jump_token: Optional[str] = None
-    jump_node: Optional['ZCPNode'] = None
+
+    def get_last_node(self) -> 'ZCPNode':
+        """Follow the linked list to get the tail node."""
+        node = self
+        while node.next_zone is not None:
+            node = node.next_zone
+        return node
+
+    def _lower_node(self,
+                    callback_factory: Callable[[str, Dict[str, Dict[str, Any]]], Callable[[], np.ndarray]],
+                    tokenizer: Callable[[str], np.ndarray],
+                    tag_converter: 'TagConverter'
+                    ) -> 'RZCPNode':
+        """
+        Convert this ZCP node to RZCP representation.
+
+        Args:
+            callback_factory: Function that takes raw_text and resource_specs, returns construction callback
+            tokenizer: Function to convert strings to token arrays
+            tag_converter: Converts tag names to boolean arrays
+
+        Returns:
+            RZCPNode with resolved tokenization and construction callback
+        """
+        # Create construction callback using factory
+        construction_callback = callback_factory(self.raw_text, self.resource_specs)
+
+        # Tokenize zone advance token
+        zone_advance_tokens = tokenizer(self.zone_advance_token)
+        if len(zone_advance_tokens) != 1:
+            raise ValueError(f"Zone advance token '{self.zone_advance_token}' must tokenize to single token")
+        zone_advance_token_id = zone_advance_tokens[0]
+
+        # Convert tags to bool array
+        tags_array = tag_converter.tensorize(self.tags)
+
+        return RZCPNode(
+            zone_advance_token=int(zone_advance_token_id),
+            tags=tags_array,
+            timeout=self.timeout,
+            construction_callback=construction_callback,
+            input=False,  # Will be set by flow control if needed
+            output=False,  # Will be set by flow control if needed
+            next_zone=None,  # Will be wired in chain conversion
+            jump_token=None,  # No flow control at this stage
+            jump_zone=None
+        )
+
+    def lower(self,
+              callback_factory: Callable[[str, Dict[str, Dict[str, Any]]], Callable[[], np.ndarray]],
+              tokenizer: Callable[[str], np.ndarray],
+              tag_converter: 'TagConverter',
+              lowered_map: Optional[Dict['ZCPNode', 'RZCPNode']] = None) -> 'RZCPNode':
+        """
+        Walk through entire graph and lower all nodes to RZCP, maintaining linkage.
+        Handles cycles and complex flow control graphs correctly.
+
+        Args:
+            callback_factory: Function that takes raw_text and resource_specs, returns construction callback
+            tokenizer: Function to convert strings to token arrays
+            tag_converter: Converts tag names to boolean arrays
+            lowered_map: Map of already lowered nodes to avoid cycles
+
+        Returns:
+            Head of the lowered RZCP graph
+        """
+        if lowered_map is None:
+            lowered_map = {}
+        if self in lowered_map:
+            return lowered_map[self]
+
+        lowered_self = self._lower_node(callback_factory, tokenizer, tag_converter)
+        lowered_map[self] = lowered_self
+
+        if self.next_zone is not None:
+            lowered_self.next_zone = self.next_zone.lower(callback_factory, tokenizer, tag_converter, lowered_map)
+
+        return lowered_self
+
+@dataclass
+class RZCPNode:
+    """
+    Resolved Zone Control Protocol node from SFCS construction.
+
+    Has resolved resources and flow control markers. Designed for sampling -
+    can walk through itself and lower to equivalent LZCP sequence when invoked.
+    Sampling is performed by invoking the construction callback,
+    and which will then tokenize and return the results. This happens once
+    at the start of the batch, and is then applied in many locations.
+
+    Attributes:
+        zone_advance_token: Token ID that triggers advancement to next zone
+        tags: Boolean array indicating which tags apply to this zone
+        timeout: Maximum tokens to generate before forcing advancement
+        construction_callback: Function that returns tokenized prompt (no params, everything resolved)
+        input: If True, zone feeds from input buffer when prompt tokens exhausted
+        output: If True, zone content is captured for extraction
+        next_zone: Next zone in the execution chain
+        jump_token: Optional token ID that triggers jump flow control
+        jump_node: Optional target node for jump flow control
+    """
+    zone_advance_token: int
+    tags: np.ndarray
+    timeout: int
+    construction_callback: Callable[[], np.ndarray]
+    input: bool = False
+    output: bool = False
+    jump_token: Optional[int] = None
+    next_zone: Optional['RZCPNode'] = None
+    jump_zone: Optional['RZCPNode'] = None
 
     def __post_init__(self):
         """Validate node consistency after initialization."""
         # Jump token and jump node must be both present or both absent
-        if (self.jump_token is None) != (self.jump_node is None):
+        if (self.jump_token is None) != (self.jump_zone is None):
             raise ValueError("jump_token and jump_node must both be present or both be None")
 
     def has_jump(self) -> bool:
         """Check if this node supports jump flow control."""
-        return self.jump_token is not None and self.jump_node is not None
+        return self.jump_token is not None and self.jump_zone is not None
 
     def is_terminal(self) -> bool:
         """Check if this is a terminal node (sink in the DCG-IO)."""
@@ -80,18 +180,77 @@ class ZCPNode:
     def is_output_zone(self) -> bool:
         """Check if this zone's content should be captured."""
         return self.output
-    
-    def get_last_node(self)->'ZCPNode':
+
+    def get_last_node(self) -> 'RZCPNode':
         """
-        Get the last node of the chain by just following
-        the linked list structure
-        :return: The last node of the chain we could find
+        Get the last node of the chain by following the linked list structure.
+
+        Returns:
+            The last node of the chain we could find
         """
         node = self
         while node.next_zone is not None:
             node = node.next_zone
         return node
 
+    def _lower_node(self) -> 'LZCPNode':
+        """
+        Convert this RZCP node to LZCP representation.
+
+        Since all tokenization and resolution is already done,
+        this is mostly just copying data over.
+
+        Returns:
+            LZCPNode with pre-resolved tokens and data
+        """
+        # Get the pre-tokenized prompt
+        tokens = self.construction_callback()
+
+        return LZCPNode(
+            tokens=tokens,
+            zone_advance_token=self.zone_advance_token,
+            tags=self.tags,
+            timeout=self.timeout,
+            input=self.input,
+            output=self.output,
+            next_zone=None,  # Will be wired later
+            jump_token=self.jump_token,
+            jump_zone=None  # Will be wired later
+        )
+
+    def lower(self,
+            lowered_map: Optional[Dict['RZCPNode', 'LZCPNode']] = None
+            ) -> 'LZCPNode':
+        """
+        Walk through entire graph and lower all nodes to LZCP, maintaining linkage.
+        Handles cycles and complex flow control graphs correctly.
+
+        Returns:
+            Head of the lowered LZCP graph
+        """
+        if lowered_map is None:
+            lowered_map = {}
+        if self in lowered_map:
+            return lowered_map[self]
+
+        lowered_self = self._lower_node()
+        lowered_map[self] = lowered_self
+        if self.next_zone is not None:
+            lowered_self.next_zone = self.next_zone.lower(lowered_map)
+        if self.jump_zone is not None:
+            lowered_self.jump_zone = self.jump_zone.lower(lowered_map)
+        return lowered_self
+
+    def attach(self, sources: List['RZCPNode'])->'RZCPNode':
+        """
+        Attaches other RZCP nodes so their nominal advancement
+        stages point at myself.
+        :param sources: The sources to attach to me
+        :return: Myself
+        """
+        for source in sources:
+            source.next_zone = self
+        return self
 
 @dataclass
 class LZCPNode:
@@ -111,7 +270,7 @@ class LZCPNode:
         input: If True, zone feeds from input buffer when prompt tokens exhausted
         output: If True, zone content is captured for extraction
         jump_token: Optional token ID that triggers jump flow control
-        jump_node: Optional target node for jump flow control
+        jump_zone: Optional target node for jump flow control
     """
     tokens: np.ndarray  # Shape: (sequence_length,) - token IDs
     zone_advance_token: int  # Token ID from tokenizer
@@ -120,13 +279,13 @@ class LZCPNode:
     input: bool
     output: bool
     next_zone: Optional['LZCPNode'] = None
-    jump_token: Optional[int] = None  # Token ID from tokenizer
-    jump_node: Optional['LZCPNode'] = None
+    jump_token: Optional[int] = None
+    jump_zone: Optional['LZCPNode'] = None
 
     def __post_init__(self):
         """Validate node consistency and array shapes after initialization."""
         # Jump token and jump node must be both present or both absent
-        if (self.jump_token is None) != (self.jump_node is None):
+        if (self.jump_token is None) != (self.jump_zone is None):
             raise ValueError("jump_token and jump_node must both be present or both be None")
 
         # Validate array shapes and types
@@ -146,7 +305,7 @@ class LZCPNode:
 
     def has_jump(self) -> bool:
         """Check if this node supports jump flow control."""
-        return self.jump_token is not None and self.jump_node is not None
+        return self.jump_token is not None and self.jump_zone is not None
 
     def is_terminal(self) -> bool:
         """Check if this is a terminal node (sink in the DCG-IO)."""
