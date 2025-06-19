@@ -11,7 +11,7 @@ from typing import Dict, Tuple, Any, Optional, Callable, List, Type
 from src.workflow_forge.ZCP.builder import GraphBuilderNode
 from ..parsing.config_parsing import Config
 from ..resources import AbstractResource
-from ..ZCP.nodes import ZCPNode, RZCPNode
+from ..ZCP.nodes import ZCPNode, RZCPNode, SamplerFactoryFactory, SamplerFactory, GraphLoweringErrorFactory
 from .tag_converter import TagConverter
 from ..tokenizer_interface import TokenizerInterface
 from .tools import Toolbox, Tool
@@ -231,36 +231,42 @@ class Scope:
 
         # Create callback factory that validates and captures resources
         def callback_factory(raw_text: str,
-                             resource_specs: Dict[str, Dict[str, Any]]
+                             resource_specs: Dict[str, Dict[str, Any]],
+                             error_callback: GraphLoweringErrorFactory
                              ) -> Callable[[], np.ndarray]:
-
-            # Validate that all required resources exist
-            for placeholder, spec in resource_specs.items():
-                resource_name = spec['name']
-                if resource_name not in resources:
-                    raise ScopeException(f"Resource '{resource_name}' not found for placeholder '{placeholder}'")
-
-            # Create the deferred construction callback
-            def construction_callback():
-                # Resolve placeholders using resources
-                resolved_values = {}
+            try:
+                # Validate that all required resources exist
                 for placeholder, spec in resource_specs.items():
                     resource_name = spec['name']
-                    arguments = spec.get('arguments')
+                    if resource_name not in resources:
+                        raise ScopeException(f"Resource '{resource_name}' not found for placeholder '{placeholder}'")
 
-                    resource = resources[resource_name]
-                    if arguments is not None:
-                        resolved_values[placeholder] = resource(**arguments)
-                    else:
-                        resolved_values[placeholder] = resource()
+                # Create the deferred construction callback
+                def construction_callback():
+                    # Resolve placeholders using resources
+                    try:
+                        resolved_values = {}
+                        for placeholder, spec in resource_specs.items():
+                            resource_name = spec['name']
+                            arguments = spec.get('arguments')
 
-                # Format the text with resolved values
-                resolved_text = raw_text.format(**resolved_values)
+                            resource = resources[resource_name]
+                            if arguments is not None:
+                                resolved_values[placeholder] = resource(**arguments)
+                            else:
+                                resolved_values[placeholder] = resource()
 
-                # Tokenize and return
-                return self.tokenizer.tokenize(resolved_text)
+                        # Format the text with resolved values
+                        resolved_text = raw_text.format(**resolved_values)
 
-            return construction_callback
+                        # Tokenize and return
+                        return self.tokenizer.tokenize(resolved_text)
+                    except Exception as err:
+                        raise error_callback("Failed to run sampling process") from err
+
+                return construction_callback
+            except Exception as err:
+                raise error_callback("Failed to successfully make the sampler callback") from err
 
         # Lower the ZCP chain to RZCP using our callback factory
         return zcp_head.lower(callback_factory, self.tokenizer, self.tag_converter)
@@ -426,8 +432,8 @@ class Program:
         self.head = make_placeholder_node(tag_converter)
 
         # Create initial builder and scope
-        jump_token = np.ndarray(tokenizer.tokenize(config.control_token))
-        initial_builder = self.factories.graph_builder(int(jump_token), [self.head])
+        jump_tokens = np.array(tokenizer.tokenize(config.control_token))
+        initial_builder = self.factories.graph_builder(jump_tokens, [self.head])
 
         self.scope = Scope(
             factories=self.factories,

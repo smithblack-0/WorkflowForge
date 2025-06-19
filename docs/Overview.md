@@ -55,13 +55,8 @@ It is worth checking their respective files in the documentation if you wish to 
 
 It should be emphasized, first, that as far as the user is concerned they never have to see ZCP.
 
-The Zone Control Protocol is an intermediate stage that is
-at the core of the SFCS system. The smallest unit of 
-instruction is the Zone. A Zone has an optional sequence
-of tokens to feed while teacher forcing, a token to listen
-for to move onto the next zone, and sometimes a token to listen
-for to engage 'jump' flow control logic, along with some
-other details. 
+The Zone Control Protocol is an intermediate stage that is at the core of the SFCS system. The smallest unit of instruction is the Zone. A Zone has an optional sequence of tokens to feed while teacher forcing, a conceptual token to listen for to move onto the next zone, and sometimes a conceptual token to listen for to engage 'jump' flow control logic, along with some
+other details. We use the word conceptual as we prevent the need to extend the tokenizer by actually matching what the sequence tokenizes into; this, however, is not a userspace detail. Anytime hereafter tokens are referred to, they are conceptual.
 
 The Zone Control Protocol is a graph of these zones that 
 walks us through the flow control, as originally defined

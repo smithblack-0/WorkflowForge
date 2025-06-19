@@ -11,7 +11,7 @@ Instead of calling the model multiple times with different prompts, Workflow For
 ```
 Model generates: "I need to think more... [Jump]"
                                          ↑
-Workflow Forge intercepts this token ────┘
+Workflow Forge intercepts this pattern ────┘
                  ↓
 Instantly replaces stream with: "Let me reconsider the problem..."
                  ↓  
@@ -25,7 +25,9 @@ Model continues generating from new context
 - **Autonomous Decision Trees**: Each model instance follows different paths based on what it generates. The same workflow is applied, but the choices made can differ. This is Single Workflow Multiple Streams (SWMS), a close cousin of SIMD.
 - **Massive Parallelism**: hundreds of independent decision-making streams per batch. Great for mass sampling.
 - **Zero-Latency Flow Control**: Instant transitions between workflow states.
-- 
+
+Note additionally that an extra extension means this remains compatible with your existing tokenizers, without having to extend your embeddings. From a userspace perspective these are tokens; however, they need not be added to your tokenizer.
+
 ### The Architecture
 
 Workflow Forge uses a 4-stage compilation pipeline inspired by traditional compilers:
