@@ -43,15 +43,19 @@ class FCFactories:
     condition_context: Type['ConditionalContext']
     scope: Type['Scope']
     program: Type['Program']
+    graph_builder: Type['GraphBuilderNode']
+    toolbox: Type['Toolbox']
 
-def make_default_constructor_context()->FCFactories:
+def make_default_factories()->FCFactories:
     return FCFactories(
         while_context=WhileContext,
         condition_context=ConditionalContext,
         scope=Scope,
         program=Program,
+        graph_builder=GraphBuilderNode,
+        toolbox=Toolbox,
     )
-constructors = make_default_constructor_context()
+factories = make_default_factories()
 
 
 ### Builder Contexts
@@ -92,7 +96,6 @@ class ConditionalContext(AbstractScopeContext):
                  parent_scope: 'Scope',
                  intake_node: GraphBuilderNode,
                  sequence: RZCPNode,
-                 factories: FCFactories
                  ):
         super().__init__(parent_scope, intake_node)
         self.sequence = sequence
@@ -149,7 +152,7 @@ class Scope:
     control graph and, later, compile it.
     """
     def __init__(self,
-                 # Scope resolution locations
+                 factories: FCFactories,
                  config: Config,
                  builder: GraphBuilderNode,
                  head: RZCPNode,  # The head of the entire shebang.
@@ -163,6 +166,8 @@ class Scope:
                  ):
         """
         Primary
+        :param factories: The container for the factories that can make classes.
+            Dependency injection at it's best and worst.
         :param config: The overall configuration. From the UDPL parser
         :param builder: The builder node in it's current status.
         :param head: The head node of the graph. Always a mock node.
@@ -176,6 +181,7 @@ class Scope:
         :param tokenizer: The tokenizer we have to draw upon
         :param tag_converter: The tail converter instance
         """
+        self.factories = factories
         self.config = config
         self.head = head
         self.builder = builder
@@ -269,15 +275,16 @@ class Scope:
              builder: GraphBuilderNode
              )-> 'Scope':
         """Creates a copy of the scope, with the new builder inserted instead. not userspace function"""
-        return Scope(self.config,
-                     builder,
-                     self.head,
-                     self.program,
-                     self.resources,
-                     self.sequences,
-                     self.tokenizer,
-                     self.tag_converter
-                     )
+        return self.factories.scope(self.factories,
+                                    self.config,
+                                    builder,
+                                    self.head,
+                                    self.program,
+                                    self.resources,
+                                    self.sequences,
+                                    self.tokenizer,
+                                    self.tag_converter
+                                    )
 
     ### Commands.
 
@@ -308,7 +315,7 @@ class Scope:
         """
         resources = self._fetch_resources(extra_resources)
         sequence = self._load_sequence(sequence_name, resources)
-        return ConditionalContext(self, self.builder, sequence)
+        return self.factories.condition_context(self, self.builder, sequence)
 
     def loop(self,
              sequence_name: str,
@@ -324,7 +331,7 @@ class Scope:
         """
         resources = self._fetch_resources(extra_resources)
         sequence = self._load_sequence(sequence_name, resources)
-        return WhileContext(self, self.builder, sequence)
+        return self.factories.while_context(self, self.builder, sequence)
 
     def subroutine(self,
                    subroutine: 'Program'
@@ -401,12 +408,14 @@ class Program:
     """
 
     def __init__(self,
+                 factories: FCFactories,
                  sequences: Dict[str, ZCPNode],
                  resources: Dict[str, AbstractResource],
                  config: Config,
                  tokenizer: TokenizerInterface,
                  tag_converter: TagConverter):
         """Initialize a new program."""
+        self.factories = factories
         self.sequences = sequences
         self.resources = resources
         self.config = config
@@ -418,17 +427,18 @@ class Program:
 
         # Create initial builder and scope
         jump_token = tokenizer.tokenize(config.control_token)[0]
-        initial_builder = GraphBuilderNode(int(jump_token), [self.head])
+        initial_builder = self.factories.graph_builder(int(jump_token), [self.head])
 
         self.scope = Scope(
-            config=config,
+            factories=self.factories,
+            config=self.config,
             builder=initial_builder,
             head=self.head,
             program=self,
-            resources=resources,
-            sequences=sequences,
-            tokenizer=tokenizer,
-            tag_converter=tag_converter
+            resources=self.resources,
+            sequences=self.sequences,
+            tokenizer=self.tokenizer,
+            tag_converter=self.tag_converter
         )
 
         # Program-level state
@@ -450,7 +460,7 @@ class Program:
         :param output_buffer_size: The size of the buffer which can contain tokens to feed into callbacks
         :return: The new toolbox
         """
-        toolbox = Toolbox(
+        toolbox = self.factories.toolbox(
             tokenizer=self.tokenizer.tokenize,
             detokenizer=self.tokenizer.detokenize,
             input_buffer_size=input_buffer_size,
@@ -476,7 +486,7 @@ class Program:
         # Validate tags exist in config
         for tag in tags:
             if tag not in self.config.valid_tags:
-                raise ScopeException(f"Invalid tag '{tag}' not in config.valid_tags")
+                raise ProgramException(f"Invalid tag '{tag}' not in config.valid_tags")
 
         # Convert to boolean mask and store
         tag_mask = self.tag_converter.tensorize(tags)
@@ -499,7 +509,7 @@ class Program:
         # Get the final RZCP graph from the scope's builder
         final_graph = self.scope.builder.head.next_zone
         if final_graph is None:
-            raise ScopeException("Cannot compile empty program - no sequences were added")
+            raise ProgramException("Cannot compile empty program - no sequences were added")
 
         raise NotImplementedError()
         return compile_program(
