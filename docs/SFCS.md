@@ -50,7 +50,7 @@ It should be clarified that, in practice, blocks and sequences decompose into a 
 
 ### Compiling
 
-Compiling takes the ZCP language, samples the researchers, tokenizes the results, converts them into tokens, and loads them into the backend as a sequence of instructions, and a sequence of token sources. The instructions contain begin and end offsets to stream tokens from.
+Compiling involves scopes. Whenever a context is manager, a new scope is made. Actions can be taken under that scope, and these actions can only ever extend existing ZCP chains. When the context manager closes, it captures the existing ZCP chains that were created in it and combines them together with the appropriate jump and flow control commands. 
 
 ## Commands
 
@@ -133,11 +133,11 @@ Observe the pythonic flow control using the with statement. This will, naturally
 
 Two exist. One is to proceed to the next link like normal. The second is to instead point directly into a zone.
 
-### The .if command
+### The .when command
 
 "If" is also supported. However, some very important notes are needed:
 
-* **Danger** the "IF" case is executed by *default*. You must manually skip it by emitting a jump if you do not want it. This is to simplify the TTFA. 
+* **Danger** the "if" case is executed by *default*. You must manually skip it by emitting a jump if you do not want it. This is to simplify the TTFA. 
 * **Warning**: In the reference implementation the model will IMMEDIATELY skip the if state the moment the jump token is emitted.
 
 An example might be the following
@@ -166,16 +166,16 @@ program = forge.new_program(sequences, resources,
 
 program.run(sequence = "Setup")
 with program.loop("loop", min=3, max=6) as loop:
-    with loop.if("if_needs_rethink", max=3) as if_branch:
+    with loop.when("if_needs_rethink", max=3) as if_branch, else_branch:
         if_branch.run("Rethink")
     loop.run("Think")
 ```
 
 **Transitions**
 
-When the if jump command triggers, it skips the rest of the sequence chain. Otherwise, we proceed like normal. Either way, we end up in the same place. Note that before the if context closes, an else context may be invoked and this changes the skip behavior to point to the else block instead. 
+When the when jump command triggers, it skips the rest of the sequence chain. Otherwise, we proceed like normal. Either way, we end up in the same place. Note that before the if context closes, an else context may be invoked and this changes the skip behavior to point to the else block instead. 
 
-### The .else command 
+#### Else context 
 
 The else statement, naturally, is also supported. It is very straightforward to use, based on continuing the if context.
 
@@ -189,9 +189,8 @@ program = forge.new_program(sequences, resources,
 
 program.run(sequence = "Setup")
 with program.loop("loop", min=3, max=6) as loop:
-    with loop.if("if_rethink", max=3) as if_branch:
+    with loop.when("if_rethink", max=3) as if_branch, else_branch:
         if_branch.run("Rethink")
-    with if_branch.else() as else_branch:
         else_branch.run("Think")
 program.run("Summarize")
 ```
@@ -216,9 +215,8 @@ program = forge.new_program(sequences, resources,
 subroutine = forge.new_program(sequences, resources,
                                config, tokenizer)
 with subroutine.loop("loop", min=3, max=6) as loop:
-    with loop.if("if_rethink", max=3) as if_branch:
+    with loop.when("if_rethink", max=3) as if_branch, else_branch:
         if_branch.run("Rethink")
-    with if_branch.else() as else_branch:
         else_branch.run("Think")
 
 # Setup the main program
@@ -247,9 +245,8 @@ program = forge.new_program(sequences, resources,
 
 program.run(sequence = "Setup")
 with program.loop("loop", min=3, max=6) as loop:
-    with loop.if("if_rethink", max=3) as if_branch:
+    with loop.when("if_rethink", max=3) as if_branch, else_branch:
         if_branch.run("Rethink")
-    with if_branch.else() as else_branch:
         else_branch.run("Think")
 program.run("Summarize")
 program.extract(name="output", tags =["output"])
@@ -320,3 +317,7 @@ controller_factory = program.compile(backend="default")
 **Transitions**
 
 Under the hood, input and output states are being marked on the final zones of particular sequences in ZCP. Eventually, that gets compiled into the finite state machine backends in the ways that matter.
+
+# Deeper Documentation
+
+Really technical information.
