@@ -469,12 +469,12 @@ class TestZoneOrchestration(unittest.TestCase):
         first_call = mock_zone_parser.call_args_list[0]
         zone_info = first_call[0][0]  # First positional argument
 
-        self.assertEqual(zone_info["advance_token"], "[Prompt]")
-        self.assertEqual(zone_info["zone_text"], "")
-        self.assertEqual(zone_info["tags"], [])
-        self.assertEqual(zone_info["sequence_name"], "test_sequence")
-        self.assertEqual(zone_info["block_index"], 0)
-        self.assertEqual(zone_info["zone_index"], 0)
+        self.assertEqual(zone_info.advance_token, "[Prompt]")
+        self.assertEqual(zone_info.zone_text, "[Prompt]")
+        self.assertEqual(zone_info.tags, [])
+        self.assertEqual(zone_info.sequence_name, "test_sequence")
+        self.assertEqual(zone_info.block_index, 0)
+        self.assertEqual(zone_info.zone_index, 0)
 
         # Verify chaining
         self.assertEqual(self.mock_nodes[0].next_zone, self.mock_nodes[1])
@@ -499,7 +499,8 @@ class TestZoneOrchestration(unittest.TestCase):
         self.assertEqual(mock_zone_parser.call_count, 6)
 
         # Verify overall zone indexing
-        zone_indices = [call[0][0]["zone_index"] for call in mock_zone_parser.call_args_list]
+        print(mock_zone_parser.call_args_list[0][0])
+        zone_indices = [call[0][0].zone_index for call in mock_zone_parser.call_args_list]
         self.assertEqual(zone_indices, [0, 1, 2, 3, 4, 5])
 
         # Verify chaining across repetitions

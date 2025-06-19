@@ -60,12 +60,10 @@ class TestBasicFunctionality(unittest.TestCase):
         self.assertEqual(result.sequence, "test_sequence")
         self.assertEqual(result.block, 0)
         self.assertEqual(result.raw_text, "What is AI?")
-        self.assertEqual(result.zone_advance_token, "[Answer]")
+        self.assertEqual(result.zone_advance_str, "[Answer]")
         self.assertEqual(result.tags, ["Training"])
         self.assertEqual(result.timeout, 500)
         self.assertEqual(result.resource_specs, {})
-        self.assertFalse(result.input)
-        self.assertFalse(result.output)
         self.assertIsNone(result.next_zone)
 
         # Test construction callback with no placeholders

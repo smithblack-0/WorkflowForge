@@ -61,17 +61,9 @@ def parse_zone(zone_info: ZoneInfo, config: Config) -> ZCPNode:
             resource_specs=resource_specs,
             construction_callback=construction_callback,
             raw_text=zone_info.zone_text,
-            zone_advance_token=zone_info.advance_token,
+            zone_advance_str=zone_info.advance_token,
             tags=zone_info.tags,
             timeout=zone_info.max_gen_tokens,
-
-            # Flow control and graph features are set
-            # at a higher level.
-            input=False,
-            output=False,
-            next_zone=None,
-            jump_token=None,
-            jump_node=None
         )
 
     except Exception as e:
