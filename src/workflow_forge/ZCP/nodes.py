@@ -15,12 +15,14 @@ The module provides two levels of representation:
 1. ZCP nodes - High-level with string references and sampling callbacks
 2. LZCP nodes - Lowered with actual tokens and tensor-ready data structures
 """
+from functools import total_ordering
+
 from ..resources import AbstractResource
 from dataclasses import dataclass
 from typing import Optional, List, Callable, Dict, Any
 from ..flow_control.tag_converter import TagConverter
 import numpy as np
-
+from ..tokenizer_interface import TokenizerInterface
 
 @dataclass
 class ZCPNode:
@@ -58,7 +60,7 @@ class ZCPNode:
 
     def _lower_node(self,
                     callback_factory: Callable[[str, Dict[str, Dict[str, Any]]], Callable[[], np.ndarray]],
-                    tokenizer: Callable[[str], np.ndarray],
+                    tokenizer: TokenizerInterface,
                     tag_converter: 'TagConverter'
                     ) -> 'RZCPNode':
         """
@@ -76,7 +78,7 @@ class ZCPNode:
         construction_callback = callback_factory(self.raw_text, self.resource_specs)
 
         # Tokenize zone advance token
-        zone_advance_tokens = tokenizer(self.zone_advance_token)
+        zone_advance_tokens = tokenizer.tokenize(self.zone_advance_token)
         if len(zone_advance_tokens) != 1:
             raise ValueError(f"Zone advance token '{self.zone_advance_token}' must tokenize to single token")
         zone_advance_token_id = zone_advance_tokens[0]
@@ -98,7 +100,7 @@ class ZCPNode:
 
     def lower(self,
               callback_factory: Callable[[str, Dict[str, Dict[str, Any]]], Callable[[], np.ndarray]],
-              tokenizer: Callable[[str], np.ndarray],
+              tokenizer: TokenizerInterface,
               tag_converter: 'TagConverter',
               lowered_map: Optional[Dict['ZCPNode', 'RZCPNode']] = None) -> 'RZCPNode':
         """
@@ -158,6 +160,7 @@ class RZCPNode:
     jump_token: Optional[int] = None
     next_zone: Optional['RZCPNode'] = None
     jump_zone: Optional['RZCPNode'] = None
+    tool_callback: Optional[Callable[[np.ndarray], np.ndarray]] = None
 
     def __post_init__(self):
         """Validate node consistency after initialization."""
@@ -215,7 +218,8 @@ class RZCPNode:
             output=self.output,
             next_zone=None,  # Will be wired later
             jump_token=self.jump_token,
-            jump_zone=None  # Will be wired later
+            jump_zone=None,  # Will be wired later
+            tool_callback = self.tool_callback
         )
 
     def lower(self,
@@ -281,6 +285,7 @@ class LZCPNode:
     next_zone: Optional['LZCPNode'] = None
     jump_token: Optional[int] = None
     jump_zone: Optional['LZCPNode'] = None
+    tool_callback: Optional[Callable[np.ndarray], np.ndarray] = None
 
     def __post_init__(self):
         """Validate node consistency and array shapes after initialization."""

@@ -209,7 +209,7 @@ tokenizer = add_special_tokens(tokenizer, config.special_tokens)
 # Programming the actual control
 program = forge .new_program(sequences, resources, config, tokenizer)
 program.run(sequence="setup") # This runs the sequence called setup
-with program.while(sequence="loop", min=2, max=6) as loop:
+with program.loop(sequence="loop", min=2, max=6) as loop:
    # Loop, recall, can sometimes emit a 
    # [Jump] token when run. This brings us 
    # OUT of the loop. Control sequences
