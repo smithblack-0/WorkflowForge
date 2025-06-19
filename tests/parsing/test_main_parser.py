@@ -23,7 +23,7 @@ from src.workflow_forge.parsing.main_parser import (
     _create_block_parser, UDPLParseError
 )
 from src.workflow_forge.parsing.config_parsing import Config
-from src.workflow_forge.ZCP.nodes import ZCPNode
+from src.workflow_forge.zcp.nodes import ZCPNode
 
 
 class TestFileParser(unittest.TestCase):

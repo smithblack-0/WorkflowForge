@@ -4,7 +4,7 @@ build actions given the current state. The
 """
 import numpy as np
 from typing import Optional, List, Tuple
-from src.workflow_forge.ZCP.nodes import RZCPNode
+from src.workflow_forge.zcp.nodes import RZCPNode
 
 class GraphBuilderException(Exception):
     """Exception raised when graph building fails"""

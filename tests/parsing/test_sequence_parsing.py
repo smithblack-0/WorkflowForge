@@ -13,7 +13,7 @@ from typing import Dict, Any
 
 # Import the modules under test (adjust imports based on actual project structure)
 from src.workflow_forge.parsing.sequence_parsing import parse_sequences, SequenceParseError
-from src.workflow_forge.ZCP.nodes import ZCPNode
+from src.workflow_forge.zcp.nodes import ZCPNode
 from src.workflow_forge.parsing.config_parsing import Config
 
 
@@ -35,7 +35,7 @@ class TestSequenceParser(unittest.TestCase):
             misc={}
         )
 
-        # Create mock ZCP nodes for testing chain construction
+        # Create mock zcp nodes for testing chain construction
         self.mock_node1 = Mock(spec=ZCPNode)
         self.mock_node1.next_zone = None
         self.mock_node1.get_last_node.return_value = self.mock_node1

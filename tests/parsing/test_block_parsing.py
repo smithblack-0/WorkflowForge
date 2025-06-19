@@ -20,7 +20,7 @@ from src.workflow_forge.parsing.block_parsing import (
     resolve_and_validate_tags, BlockParseError, ZoneInfo
 )
 from src.workflow_forge.parsing.config_parsing import Config
-from src.workflow_forge.ZCP.nodes import ZCPNode
+from src.workflow_forge.zcp.nodes import ZCPNode
 
 
 class TestBlockStructureValidation(unittest.TestCase):
@@ -438,7 +438,7 @@ class TestZoneOrchestration(unittest.TestCase):
             misc={}
         )
 
-        # Create mock ZCP nodes
+        # Create mock zcp nodes
         self.mock_nodes = []
         for i in range(6):  # Enough for testing multiple zones/repetitions
             node = Mock(spec=ZCPNode)

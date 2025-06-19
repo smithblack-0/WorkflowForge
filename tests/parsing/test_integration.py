@@ -2,7 +2,7 @@
 Integration tests for UDPL Parser
 
 These tests use real UDPL examples from the documentation to verify
-the entire parsing pipeline works correctly end-to-end from TOML → ZCP nodes.
+the entire parsing pipeline works correctly end-to-end from TOML → zcp nodes.
 """
 
 import unittest
@@ -13,7 +13,7 @@ from unittest.mock import Mock
 # Import the modules under test
 from src.workflow_forge.parsing.main_parser import parse_udpl_file, parse_udpl_folder
 from src.workflow_forge.parsing.config_parsing import Config
-from src.workflow_forge.ZCP.nodes import ZCPNode
+from src.workflow_forge.zcp.nodes import ZCPNode
 from src.workflow_forge.resources import AbstractResource
 
 
