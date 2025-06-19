@@ -15,12 +15,80 @@ The module provides two levels of representation:
 1. ZCP nodes - High-level with string references and sampling callbacks
 2. LZCP nodes - Lowered with actual tokens and tensor-ready data structures
 """
-
-from dataclasses import dataclass
-from typing import Optional, List, Callable, Dict, Any
-from ..flow_control.tag_converter import TagConverter
 import numpy as np
+import textwrap
+import functools
+from dataclasses import dataclass
+from typing import Optional, List, Callable, Dict, Any, Type
+from ..flow_control.tag_converter import TagConverter
 from ..tokenizer_interface import TokenizerInterface
+from ..resources import AbstractResource
+
+## Setup the error banks
+
+class GraphLoweringError(Exception):
+    """
+    This flavor of exception is invoked only when a graph
+    lowering stage ends up malformed or does not perform
+    correctly. This can be due to a variety of things,
+    """
+    def __init__(self,
+                 message: str,
+                 block: int,
+                 sequence: str
+                 ):
+        """
+        :param message: The main message to display
+        :param block: The block it occurred associated with
+        :param sequence: The sequence it is associated with
+        """
+
+        msg = f"""\
+        An issue occurred while attempting to lower the graph
+        This occurred in sequence "{sequence}", in block "{block}"
+        The error is:
+        """
+        msg= textwrap.dedent(msg) + "\n" + message
+        super().__init__(msg)
+        self.sequence = sequence
+        self.block = block
+
+
+class GraphError(Exception):
+    """
+    This flavor of exception is invoked only when a graph
+    lowering stage ends up malformed or does not perform
+    correctly. This can be due to a variety of things,
+    """
+    def __init__(self,
+                 message: str,
+                 block: int,
+                 sequence: str
+                 ):
+        """
+        :param message: The main message to display
+        :param block: The block it occurred associated with
+        :param sequence: The sequence it is associated with
+        """
+
+        msg = f"""\
+        An issue occurred while manipulating the graph
+        This occurred in sequence "{sequence}", in block "{block}"
+        The error is:
+        """
+        msg= textwrap.dedent(msg) + "\n" + message
+        super().__init__(msg)
+        self.sequence = sequence
+        self.block = block
+
+## Setup the various aliases
+
+GraphLoweringErrorFactory = Callable[[str], GraphLoweringError]
+SamplerFactory = Callable[[], np.ndarray]
+SamplerFactoryFactory = Callable[[str, Dict[str, Dict[str, Any]],
+                                  GraphLoweringErrorFactory],
+                                 SamplerFactory]
+
 
 @dataclass
 class ZCPNode:
@@ -57,7 +125,7 @@ class ZCPNode:
         return node
 
     def _lower_node(self,
-                    callback_factory: Callable[[str, Dict[str, Dict[str, Any]]], Callable[[], np.ndarray]],
+                    callback_factory: SamplerFactoryFactory,
                     tokenizer: TokenizerInterface,
                     tag_converter: 'TagConverter'
                     ) -> 'RZCPNode':
@@ -72,29 +140,36 @@ class ZCPNode:
         Returns:
             RZCPNode with resolved tokenization and construction callback
         """
-        # Create construction callback using factory
-        construction_callback = callback_factory(self.raw_text, self.resource_specs)
+        try:
+            # Create construction callback using factory
+            error_callback = functools.partial(GraphLoweringError, sequence=self.sequence, block=self.block)
+            construction_callback = callback_factory(self.raw_text, self.resource_specs, error_callback)
 
-        # Tokenize zone advance token
-        zone_advance_tokens = tokenizer.tokenize(self.zone_advance_str)
+            # Tokenize zone advance token
+            zone_advance_tokens = tokenizer.tokenize(self.zone_advance_str)
 
-        # Convert tags to bool array
-        tags_array = tag_converter.tensorize(self.tags)
+            # Convert tags to bool array
+            tags_array = tag_converter.tensorize(self.tags)
 
-        return RZCPNode(
-            zone_advance_tokens=np.ndarray(zone_advance_tokens),
-            tags=tags_array,
-            timeout=self.timeout,
-            construction_callback=construction_callback,
-            input=False,
-            output=False,
-            next_zone=None,
-            jump_tokens=None,
-            jump_zone=None
-        )
+            return RZCPNode(
+                sequence = self.sequence,
+                block = self.block,
+                zone_advance_tokens=np.array(zone_advance_tokens),
+                tags=tags_array,
+                timeout=self.timeout,
+                construction_callback=construction_callback,
+                input=False,
+                output=False,
+                next_zone=None,
+                jump_tokens=None,
+                jump_zone=None
+            )
+        except Exception as err:
+            raise GraphLoweringError("Failed to lower ZCP to RZCP",
+                                     block=self.block, sequence=self.sequence) from err
 
     def lower(self,
-              callback_factory: Callable[[str, Dict[str, Dict[str, Any]]], Callable[[], np.ndarray]],
+              callback_factory: SamplerFactoryFactory,
               tokenizer: TokenizerInterface,
               tag_converter: 'TagConverter',
               lowered_map: Optional[Dict['ZCPNode', 'RZCPNode']] = None) -> 'RZCPNode':
@@ -136,6 +211,8 @@ class RZCPNode:
     at the start of the batch, and is then applied in many locations.
 
     Attributes:
+        sequence: String sequence, used only for error reporting
+        block: Block number within the sequence. Only for error reporting.
         zone_advance_tokens: Token List ID that triggers advancement to next zone
         tags: Boolean array indicating which tags apply to this zone
         timeout: Maximum tokens to generate before forcing advancement
@@ -146,6 +223,8 @@ class RZCPNode:
         jump_tokens: Optional token ID List that triggers jump flow control
         jump_zone: Optional target node for jump flow control
     """
+    sequence: str
+    block: int
     zone_advance_tokens: np.ndarray
     tags: np.ndarray
     timeout: int
@@ -161,7 +240,9 @@ class RZCPNode:
         """Validate node consistency after initialization."""
         # Jump token and jump node must be both present or both absent
         if (self.jump_tokens is None) != (self.jump_zone is None):
-            raise ValueError("jump_token and jump_node must both be present or both be None")
+            raise GraphError("jump_token and jump_node must both be present or both be None",
+                             sequence=self.sequence,
+                             block=self.block)
 
     def has_jump(self) -> bool:
         """Check if this node supports jump flow control."""
@@ -202,20 +283,26 @@ class RZCPNode:
             LZCPNode with pre-resolved tokens and data
         """
         # Get the pre-tokenized prompt
-        tokens = self.construction_callback()
+        try:
+            tokens = self.construction_callback()
 
-        return LZCPNode(
-            tokens=tokens,
-            zone_advance_tokens=self.zone_advance_tokens,
-            tags=self.tags,
-            timeout=self.timeout,
-            input=self.input,
-            output=self.output,
-            next_zone=None,  # Will be wired later
-            jump_tokens=self.jump_tokens,
-            jump_zone=None,  # Will be wired later
-            tool_callback = self.tool_callback
-        )
+            return LZCPNode(
+                sequence=self.sequence,
+                block=self.block,
+                tokens=tokens,
+                zone_advance_tokens=self.zone_advance_tokens,
+                tags=self.tags,
+                timeout=self.timeout,
+                input=self.input,
+                output=self.output,
+                next_zone=None,  # Will be wired later
+                jump_tokens=self.jump_tokens,
+                jump_zone=None,  # Will be wired later
+                tool_callback = self.tool_callback
+            )
+        except Exception as err:
+            raise GraphLoweringError("Failed to lower RZCP to LZCP",
+                                     sequence=self.sequence, block=self.block) from err
 
     def lower(self,
             lowered_map: Optional[Dict['RZCPNode', 'LZCPNode']] = None
@@ -261,6 +348,8 @@ class LZCPNode:
     ready for compilation to the TTFA backend.
 
     Attributes:
+        sequence: String sequence, used only for error reporting
+        block: Block number within the sequence
         tokens: Actual token sequence to feed as input (from resolved sampling)
         next_zone: Pointer to the next zone in the execution chain
         zone_advance_tokens: Token ID that triggers advancement to next_zone
@@ -271,6 +360,8 @@ class LZCPNode:
         jump_token: Optional token ID that triggers jump flow control
         jump_zone: Optional target node for jump flow control
     """
+    sequence: str
+    block: int
     tokens: np.ndarray  # Shape: (sequence_length,) - token IDs
     zone_advance_tokens: np.ndarray
     tags: np.ndarray  # Shape: (num_tags,) - boolean array for tag membership
@@ -284,34 +375,47 @@ class LZCPNode:
 
     def __post_init__(self):
         """Validate node consistency and array shapes after initialization."""
-        # Jump token and jump node must be both present or both absent
-        if (self.jump_tokens is None) != (self.jump_zone is None):
-            raise ValueError("jump_token and jump_node must both be present or both be None")
+        try:
+            # Jump token and jump node must be both present or both absent
+            if (self.jump_tokens is None) != (self.jump_zone is None):
+                raise ValueError("jump_tokens and jump_zone must both be present or both be None")
 
-        # Validate zone_advance_tokens
-        if not isinstance(self.zone_advance_tokens, np.ndarray):
-            raise TypeError("zone_advance_tokens must be a numpy array")
-        if self.zone_advance_tokens.ndim != 1:
-            raise ValueError("zone_advance_tokens must be a 1D array")
-        if self.zone_advance_tokens.dtype not in [np.int32, np.int64]:
-            raise ValueError("zone_advance_tokens must have integer dtype")
+            # Validate zone_advance_tokens
+            if not isinstance(self.zone_advance_tokens, np.ndarray):
+                raise TypeError("zone_advance_tokens must be a numpy array")
+            if self.zone_advance_tokens.ndim != 1:
+                raise ValueError("zone_advance_tokens must be a 1D array")
+            if self.zone_advance_tokens.dtype not in [np.int32, np.int64]:
+                raise ValueError("zone_advance_tokens must have integer dtype")
 
-        # Validate jump_tokens if present
-        if self.jump_tokens is not None:
-            if not isinstance(self.jump_tokens, np.ndarray):
-                raise TypeError("jump_tokens must be a numpy array")
-            if self.jump_tokens.ndim != 1:
-                raise ValueError("jump_tokens must be a 1D array")
-            if self.jump_tokens.dtype not in [np.int32, np.int64]:
-                raise ValueError("jump_tokens must have integer dtype")
+            # Validate jump_tokens if present
+            if self.jump_tokens is not None:
+                if not isinstance(self.jump_tokens, np.ndarray):
+                    raise TypeError("jump_tokens must be a numpy array")
+                if self.jump_tokens.ndim != 1:
+                    raise ValueError("jump_tokens must be a 1D array")
+                if self.jump_tokens.dtype not in [np.int32, np.int64]:
+                    raise ValueError("jump_tokens must have integer dtype")
 
-        if not isinstance(self.tags, np.ndarray):
-            raise TypeError("tags must be a numpy array")
-        if self.tags.ndim != 1:
-            raise ValueError("tags must be a 1D array")
-        if self.tags.dtype != np.bool_:
-            raise ValueError("tags must have boolean dtype")
+            # Validate tags array
+            if not isinstance(self.tags, np.ndarray):
+                raise TypeError("tags must be a numpy array")
+            if self.tags.ndim != 1:
+                raise ValueError("tags must be a 1D array")
+            if self.tags.dtype != np.bool_:
+                raise ValueError("tags must have boolean dtype")
 
+            # Validate tokens array
+            if not isinstance(self.tokens, np.ndarray):
+                raise TypeError("tokens must be a numpy array")
+            if self.tokens.ndim != 1:
+                raise ValueError("tokens must be a 1D array")
+            if self.tokens.dtype not in [np.int32, np.int64]:
+                raise ValueError("tokens must have integer dtype")
+
+        except Exception as err:
+            raise GraphError(f"LZCP node validation failed",
+                             sequence=self.sequence, block=self.block) from err
     def has_jump(self) -> bool:
         """Check if this node supports jump flow control."""
         return self.jump_tokens is not None and self.jump_zone is not None

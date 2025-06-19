@@ -2,6 +2,7 @@
 The builder is responsible for committing and monitoring the right
 build actions given the current state. The
 """
+import numpy as np
 from typing import Optional, List, Tuple
 from src.workflow_forge.ZCP.nodes import RZCPNode
 
@@ -52,11 +53,11 @@ class GraphBuilderNode:
         nominal_refs: Set of edges of type "sequential flow" waiting for target vertex
         flow_control_refs: Set of edges of type "conditional jump" waiting for target vertex
         head: The target vertex (None until edges are resolved)
-        jump_token: Label for conditional jump edges
+        jump_tokens: The tokens representing the "execute jump" instruction
     """
 
     def __init__(self,
-                 jump_token: int,
+                 jump_tokens: np.ndarray,
                  nominal_refs: Optional[List[RZCPNode]] = None,
                  flow_control_refs: Optional[List[RZCPNode]] = None,
                  ):
@@ -72,7 +73,7 @@ class GraphBuilderNode:
         self.nominal_refs = nominal_refs or []
         self.flow_control_refs = flow_control_refs or []
         self.head: Optional[RZCPNode] = None
-        self.jump_token = jump_token
+        self.jump_tokens = jump_tokens
 
     def _resolve_forward_references(self, sequence):
         """Internal utility to wire up all the forward references"""
@@ -86,7 +87,7 @@ class GraphBuilderNode:
             if tail.jump_zone is not None:
                 raise GraphBuilderException("Attempted to replace graph flow control link")
             tail.jump_zone = sequence
-            tail.jump_token = self.jump_token
+            tail.jump_tokens = self.jump_tokens
         self.head = sequence
 
     def extend(self, sequence: RZCPNode) -> 'GraphBuilderNode':
@@ -105,7 +106,7 @@ class GraphBuilderNode:
         """
         self._resolve_forward_references(sequence)
         sequence_tail = sequence.get_last_node()
-        return GraphBuilderNode(self.jump_token, [sequence_tail])
+        return GraphBuilderNode(self.jump_tokens, [sequence_tail])
 
     def fork(self, sequence: RZCPNode) -> Tuple['GraphBuilderNode', 'GraphBuilderNode']:
         """
@@ -130,8 +131,8 @@ class GraphBuilderNode:
         sequence_tail = sequence.get_last_node()
 
         # Create builders for both paths
-        main_path = GraphBuilderNode(self.jump_token, [sequence_tail], None)
-        jump_path = GraphBuilderNode(self.jump_token, None, [sequence_tail])  # Jump wiring handled separately
+        main_path = GraphBuilderNode(self.jump_tokens, [sequence_tail], None)
+        jump_path = GraphBuilderNode(self.jump_tokens, None, [sequence_tail])  # Jump wiring handled separately
 
         return main_path, jump_path
 
@@ -158,7 +159,7 @@ class GraphBuilderNode:
             nominal_refs.extend(builder.nominal_refs)
             flow_control_refs.extend(builder.flow_control_refs)
 
-        return cls(builders[0].jump_token, nominal_refs, flow_control_refs)
+        return cls(builders[0].jump_tokens, nominal_refs, flow_control_refs)
 
     def attach(self, node: 'GraphBuilderNode'):
         """
