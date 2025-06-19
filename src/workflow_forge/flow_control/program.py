@@ -8,7 +8,7 @@ import warnings
 import copy
 from typing import Dict, Tuple, Any, Optional, Callable, List, Type
 
-from .builder import GraphBuilderNode
+from src.workflow_forge.ZCP.builder import GraphBuilderNode
 from ..parsing.config_parsing import Config
 from ..resources import AbstractResource
 from ..ZCP.nodes import ZCPNode, RZCPNode
