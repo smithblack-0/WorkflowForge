@@ -99,10 +99,7 @@ escape_token = "[Escape]"
   control transition when generated. This can skip
   zone advancement or flow control.
 
-This configuration governs the interpretation of all
-blocks defined in the file. Note you will see errors 
-later on if you do not provide singular special tokens
-in your tokenizer corresponding to this configuration.
+This configuration governs the interpretation of all blocks defined in the file. Note you will see errors later on if you do not provide special strings in your configuration to correspond with your special actiontriggers. These tokens, however, do not have to corrospond directly with tokens in your tokenizer, due to a language extension added later. They are conceptually token 'strings' which the backend will respond to.
 
 If desired, additional entries can be parsed into 
 you config. All entries in the config are returned as named by the Config object parsing generates. Additionally, the misc folder contains the raw toml parse if you have extra terms you want to place into your config.

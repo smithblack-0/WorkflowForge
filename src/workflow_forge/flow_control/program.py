@@ -426,7 +426,7 @@ class Program:
         self.head = make_placeholder_node(tag_converter)
 
         # Create initial builder and scope
-        jump_token = tokenizer.tokenize(config.control_token)[0]
+        jump_token = np.ndarray(tokenizer.tokenize(config.control_token))
         initial_builder = self.factories.graph_builder(int(jump_token), [self.head])
 
         self.scope = Scope(

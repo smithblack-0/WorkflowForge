@@ -6,6 +6,11 @@ All notable changes to Workflow Forge will be documented in this file.
 
 *Note: This is an early development release. SFCS flow control and TTFA execution engine are still in development. Backend engine is not yet functional. Language is still vulnerable to change, and backwards compatibility not yet guaranteed*
 
+## [0.1.2]
+
+(2025-06-19)
+- We are pivoting to using entire strings of tokens, rather than requiring the user to setup special tokens in their tokenizer and embeddings. This adds complexity, but it is not unmanagable.
+- This involved adding the Token Trigger Detection Autonoma, to detect when a special command has been issued, and the Forced Token Feeding Autonoma, which can be triggered by a bool state and automatically claim the stream and feed tokens to force, for instance, '[NextZone]' into the stream on timeout.
 
 
 ## [0.1.1] - 2025-06-18

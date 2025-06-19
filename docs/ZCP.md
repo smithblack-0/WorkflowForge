@@ -51,7 +51,7 @@ ZCP nodes represent zones of text with unresolved string references:
 * **Sequence/Block**: Construction metadata for provenance tracking
 * **Resource specs**: Placeholder → resource mapping (unresolved)
 * **Raw text**: Template with placeholders like `{resource_name}`
-* **Zone advance token**: String token that triggers advancement (e.g., "[Answer]")
+* **Zone advance str**: String that triggers advancement (e.g., "[Answer]")
 * **Tags**: List of string tags for selective extraction
 * **Timeout**: Maximum tokens before forced advancement
 * **Next zone**: Simple linked list pointer (no flow control)
@@ -60,7 +60,7 @@ ZCP nodes represent zones of text with unresolved string references:
 RZCP represents the stage with resolved flow control and construction callbacks:
 
 * **Construction callback**: Function that returns tokenized prompt when called
-* **Integer tokens**: Zone advance and jump tokens as token IDs
+* **Integer tokens**: Zone advance and jump tokens as token IDs NumPy array
 * **Graph connectivity**: Full next_zone and jump_zone references resolved
 * **Input/Output flags**: Control data flow behavior
 * **Tool callbacks**: Optional tool integration functions
@@ -71,8 +71,8 @@ RZCP represents the stage with resolved flow control and construction callbacks:
 LZCP is the final stage ready for TTFA compilation, with full sampling resolution:
 
 * **Tokens**: Actual token sequence as numpy array (from construction callback)
-* **Zone advance token**: Integer token ID from tokenizer  
-* **Jump token**: Integer token ID (if applicable)
+* **Zone advance tokens**: Token triggering np.array  
+* **Jump tokens**: Integer token IDs as np.array
 * **Tags**: Boolean array for tag membership
 * **Timeout**: Integer token limit
 * **Input/Output flags**: Boolean values
