@@ -2,7 +2,7 @@
 Main UDPL Parser
 
 This module provides the main entry points for parsing UDPL files and folders.
-It orchestrates the entire parsing pipeline from TOML data to ZCP node chains.
+It orchestrates the entire parsing pipeline from TOML data to zcp node chains.
 """
 
 import os
@@ -14,7 +14,7 @@ from .config_parsing import Config, parse_config
 from .sequence_parsing import parse_sequences
 from .block_parsing import parse_block
 from .zone_parsing import parse_zone
-from ..ZCP.nodes import ZCPNode
+from ..zcp.nodes import ZCPNode
 
 
 class UDPLParseError(Exception):
@@ -24,14 +24,14 @@ class UDPLParseError(Exception):
 
 def parse_udpl_file(file_path: str) -> Tuple[Dict[str, ZCPNode], Config]:
     """
-    Parse a single UDPL TOML file into ZCP node chains.
+    Parse a single UDPL TOML file into zcp node chains.
 
     Args:
         file_path: Path to the UDPL TOML file
 
     Returns:
         Tuple of (sequences_dict, config) where sequences_dict maps
-        sequence names to ZCP node chain heads
+        sequence names to zcp node chain heads
 
     Raises:
         UDPLParseError: If file loading or parsing fails
@@ -53,14 +53,14 @@ def parse_udpl_file(file_path: str) -> Tuple[Dict[str, ZCPNode], Config]:
 
 def parse_udpl_folder(folder_path: str) -> Tuple[Dict[str, ZCPNode], Config]:
     """
-    Parse all UDPL TOML files in a folder into ZCP node chains.
+    Parse all UDPL TOML files in a folder into zcp node chains.
 
     Args:
         folder_path: Path to folder containing UDPL TOML files
 
     Returns:
         Tuple of (sequences_dict, config) where sequences_dict maps
-        sequence names to ZCP node chain heads
+        sequence names to zcp node chain heads
 
     Raises:
         UDPLParseError: If folder loading, merging, or parsing fails
@@ -138,7 +138,7 @@ def _check_for_collisions(new_data: Dict[str, Any],
 
 def _parse(toml_data: Dict[str, Any]) -> Tuple[Dict[str, ZCPNode], Config]:
     """
-    Parse validated TOML data into ZCP node chains.
+    Parse validated TOML data into zcp node chains.
 
     This is the core parsing logic that orchestrates all parsing stages.
 
@@ -147,7 +147,7 @@ def _parse(toml_data: Dict[str, Any]) -> Tuple[Dict[str, ZCPNode], Config]:
 
     Returns:
         Tuple of (sequences_dict, config) where sequences_dict maps
-        sequence names to ZCP node chain heads
+        sequence names to zcp node chain heads
 
     Raises:
         UDPLParseError: If parsing fails at any stage

@@ -6,13 +6,13 @@ This is the final stage of the UDPL parsing pipeline that handles:
 - Flow control token validation
 - Placeholder syntax validation  
 - Resource binding validation
-- ZCP node creation with proper callbacks
+- zcp node creation with proper callbacks
 """
 
 import re
 import string
 from typing import Dict, Any, List, Optional, Callable
-from ..ZCP.nodes import ZCPNode
+from ..zcp.nodes import ZCPNode
 from ..resources import AbstractResource
 from .config_parsing import Config
 from .block_parsing import ZoneInfo
@@ -32,7 +32,7 @@ def parse_zone(zone_info: ZoneInfo, config: Config) -> ZCPNode:
         config: Validated UDPL configuration
 
     Returns:
-        ZCPNode: Configured ZCP node for this zone
+        ZCPNode: Configured zcp node for this zone
 
     Raises:
         ZoneParseError: If zone validation or processing fails
@@ -53,7 +53,7 @@ def parse_zone(zone_info: ZoneInfo, config: Config) -> ZCPNode:
             resource_specs
         )
 
-        # Create the ZCP node
+        # Create the zcp node
         return ZCPNode(
             # Data payload features
             sequence=zone_info.sequence_name,

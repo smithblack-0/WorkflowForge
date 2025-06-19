@@ -1,5 +1,5 @@
 """
-Scope nodes are used to make the ZCP graph. They form a natural
+Scope nodes are used to make the zcp graph. They form a natural
 nested hierarchy that captures the blocks we use to make up code.
 Scope nodes upon running their exit routine should attach.
 """
@@ -8,10 +8,10 @@ import warnings
 import copy
 from typing import Dict, Tuple, Any, Optional, Callable, List, Type
 
-from src.workflow_forge.ZCP.builder import GraphBuilderNode
+from src.workflow_forge.zcp.builder import GraphBuilderNode
 from ..parsing.config_parsing import Config
 from ..resources import AbstractResource
-from ..ZCP.nodes import ZCPNode, RZCPNode, SamplerFactoryFactory, SamplerFactory, GraphLoweringErrorFactory
+from ..zcp.nodes import ZCPNode, RZCPNode, SamplerFactoryFactory, SamplerFactory, GraphLoweringErrorFactory
 from .tag_converter import TagConverter
 from ..tokenizer_interface import TokenizerInterface
 from .tools import Toolbox, Tool
@@ -177,7 +177,7 @@ class Scope:
         :param resources:
             The available resources for the particular process under consideration. This is
             excluding custom dynamic resources.
-        :param sequences: The sequences of ZCP nodes we can draw upon, and their names
+        :param sequences: The sequences of zcp nodes we can draw upon, and their names
         :param tokenizer: The tokenizer we have to draw upon
         :param tag_converter: The tail converter instance
         """
@@ -226,10 +226,14 @@ class Scope:
         if sequence_name not in self.sequences:
             raise ScopeException(f"Sequence '{sequence_name}' not found in available sequences")
 
-        # Get the ZCP chain head
+        # Get the zcp chain head
         zcp_head = self.sequences[sequence_name]
 
-        # Create callback factory that validates and captures resources
+        # Create callback factory that validates and captures resources.
+        #
+        # It should be kept in mind you will not understand what this is
+        # doing particularly well until you see how the callbacks are being
+        # used in the zcp module.
         def callback_factory(raw_text: str,
                              resource_specs: Dict[str, Dict[str, Any]],
                              error_callback: GraphLoweringErrorFactory
@@ -268,7 +272,7 @@ class Scope:
             except Exception as err:
                 raise error_callback("Failed to successfully make the sampler callback") from err
 
-        # Lower the ZCP chain to RZCP using our callback factory
+        # Lower the zcp chain to RZCP using our callback factory
         return zcp_head.lower(callback_factory, self.tokenizer, self.tag_converter)
 
     def replace_builder(self,

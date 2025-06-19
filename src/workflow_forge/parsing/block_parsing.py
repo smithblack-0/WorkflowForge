@@ -8,7 +8,7 @@ and orchestrate their processing. This includes:
 - Handling repetitions (repeats/tagset)
 - Creating ZoneInfo for each actual zone
 - Calling zone parser for each zone
-- Chaining returned ZCP nodes into linked list
+- Chaining returned zcp nodes into linked list
 - Returning the head of the chain
 """
 
@@ -16,7 +16,7 @@ from typing import Dict, Any, List, Callable
 from dataclasses import dataclass
 import re
 import warnings
-from ..ZCP.nodes import ZCPNode
+from ..zcp.nodes import ZCPNode
 from .config_parsing import Config
 
 
@@ -49,7 +49,7 @@ def parse_block(
     zone_parser: ZoneParser
 ) -> ZCPNode:
     """
-    Parse a single UDPL block into a ZCP node chain.
+    Parse a single UDPL block into a zcp node chain.
 
     Takes a block definition and expands it into all constituent zones,
     handling repetitions, then processes each zone individually and
@@ -60,10 +60,10 @@ def parse_block(
         config: Validated UDPL configuration
         sequence_name: Name of the sequence this block belongs to
         block_index: Index of this block within the sequence
-        zone_parser: Function that processes individual zones into ZCP nodes
+        zone_parser: Function that processes individual zones into zcp nodes
 
     Returns:
-        ZCPNode: Head of the ZCP chain for this block
+        ZCPNode: Head of the zcp chain for this block
 
     Raises:
         BlockParseError: If block validation or processing fails
@@ -109,7 +109,7 @@ def parse_block(
                     block_data=block_data  # Pass full block data for resource spec access
                 )
 
-                # Call zone parser to get ZCP node
+                # Call zone parser to get zcp node
                 zone_node = zone_parser(zone_info, config)
                 if not isinstance(zone_node, ZCPNode):
                     raise BlockParseError(

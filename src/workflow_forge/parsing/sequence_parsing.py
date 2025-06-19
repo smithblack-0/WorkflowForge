@@ -2,18 +2,18 @@
 UDPL Sequence Parser
 
 This module parses sequences from TOML data, validates them according to the UDPL
-specification, and builds linked ZCP node chains using a provided block parser.
+specification, and builds linked zcp node chains using a provided block parser.
 
 The sequence parser:
 1. Validates that each sequence in config exists in TOML
 2. Ensures each sequence resolves to a list
 3. Calls the block parser for each block in the sequence
-4. Chains the returned ZCP nodes into linked lists
-5. Returns a dictionary mapping sequence names to ZCP chain heads
+4. Chains the returned zcp nodes into linked lists
+5. Returns a dictionary mapping sequence names to zcp chain heads
 """
 
 from typing import Dict, List, Any, Callable
-from ..ZCP.nodes import ZCPNode
+from ..zcp.nodes import ZCPNode
 from .config_parsing import Config
 
 
@@ -27,7 +27,7 @@ def parse_sequences(
     block_parser: Callable[[Dict[str, Any], Config, str, int], ZCPNode]
 ) -> Dict[str, ZCPNode]:
     """
-    Parse all sequences from TOML data into ZCP node chains.
+    Parse all sequences from TOML data into zcp node chains.
 
     Args:
         toml_data: Raw parsed TOML data
@@ -35,7 +35,7 @@ def parse_sequences(
         block_parser: Callable that accepts (block_data, config, sequence_name, block_index) and returns ZCPNode
 
     Returns:
-        Dictionary mapping sequence names to the head ZCP node of each chain
+        Dictionary mapping sequence names to the head zcp node of each chain
 
     Raises:
         SequenceParseError: If sequence validation or parsing fails
@@ -62,7 +62,7 @@ def parse_sequences(
             if len(sequence_data) == 0:
                 raise SequenceParseError(f"Sequence '{sequence_name}' cannot be empty")
 
-            # Parse each block and build the ZCP chain
+            # Parse each block and build the zcp chain
             chain_head = None
             current_tail = None
 
@@ -75,10 +75,10 @@ def parse_sequences(
                             f"got {type(block_data).__name__}"
                         )
 
-                    # Call the block parser to get the head ZCP node for this block
+                    # Call the block parser to get the head zcp node for this block
                     block_head = block_parser(block_data, config, sequence_name, block_index)
 
-                    # Validate block parser returned a ZCP node
+                    # Validate block parser returned a zcp node
                     if not isinstance(block_head, ZCPNode):
                         raise SequenceParseError(
                             f"Block parser must return a ZCPNode, got {type(block_head).__name__}"

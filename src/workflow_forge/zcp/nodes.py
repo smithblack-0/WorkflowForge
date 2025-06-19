@@ -1,18 +1,18 @@
 """
-Zone Control Protocol (ZCP) Node Definitions
+Zone Control Protocol (zcp) Node Definitions
 
-This module defines the data structures for ZCP nodes, which represent zones of text
+This module defines the data structures for zcp nodes, which represent zones of text
 in the intermediate representation used by Workflow Forge before compilation to
 the Token Triggered Finite Automata (TTFA) backend.
 
-ZCP supports Directed Cyclic IO Graphs (DCG-IO), which are directed graphs that:
+zcp supports Directed Cyclic IO Graphs (DCG-IO), which are directed graphs that:
 - Allow cycles (unlike DAGs)
 - Have exactly one source and one sink vertex
 - Guarantee all vertices are reachable from source and can reach sink
 - Maintain computational tractability for workflow analysis
 
 The module provides two levels of representation:
-1. ZCP nodes - High-level with string references and sampling callbacks
+1. zcp nodes - High-level with string references and sampling callbacks
 2. LZCP nodes - Lowered with actual tokens and tensor-ready data structures
 """
 import numpy as np
@@ -130,7 +130,7 @@ class ZCPNode:
                     tag_converter: 'TagConverter'
                     ) -> 'RZCPNode':
         """
-        Convert this ZCP node to RZCP representation.
+        Convert this zcp node to RZCP representation.
 
         Args:
             callback_factory: Function that takes raw_text and resource_specs, returns construction callback
@@ -165,7 +165,7 @@ class ZCPNode:
                 jump_zone=None
             )
         except Exception as err:
-            raise GraphLoweringError("Failed to lower ZCP to RZCP",
+            raise GraphLoweringError("Failed to lower zcp to RZCP",
                                      block=self.block, sequence=self.sequence) from err
 
     def lower(self,
