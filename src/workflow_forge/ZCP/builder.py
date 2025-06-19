@@ -11,21 +11,48 @@ class GraphBuilderException(Exception):
 
 class GraphBuilderNode:
     """
-    Graph builder node for constructing RZCP flow control graphs with
-    forward reference resolution. It delays attachment of the most recent
-    set of nodes until the forward resolution is found, then catches the new
-    node set.
+    Graph builder for RZCP flow control compilation with forward reference
+    resolution.
 
-    Manages the construction of RZCP node chains while handling forward references elegantly.
-    Each GraphBuilderNode maintains a list of RZCP node tails that need to be wired to
-    whatever sequence comes next. New graph builder nodes are returned functionally, but
-    note the underlying constructed graph is not functional.
+    When building a flow control graph, we encounter situations where we know
+    certain edges must connect to some future vertex, but that vertex hasn't
+    been created yet. This is the mathematical concept of "dangling edges" -
+    edges that have a source but no destination. This class exists to resolve
+    this situation.
 
-    It also, later, captures whatever the forward references were wired to under the
-    head field
+    In graph theory terms: this represents a set of directed edges E that will be terminated
+    at V, and then later stores V itself and connects the edges. Each edge can have
+    one of two 'colors' determined by the color site the edge is emitted from on the
+    originating node.
+
+
+    A GraphBuilderNode is constructed with:
+    - A set of dangling edges waiting for their target vertex.
+    - Speaking formally these edges have one of two 'colors' which are determined
+      by the emission site at the source node.
+
+    After construction, it can be manipulated and eventually one of these
+    manipulations will resolve the question of what V is. When this happens:
+    1. The connections are resolved. Originating at the right 'color', which technically is
+       one of the nominal advance or jump advance links
+    2. Store the node.
+
+
+    Methods:
+    - extend(): Resolves all dangling edges to a new vertex V, returns new builder
+      with edges from V as the new dangling set
+    - fork(): Creates two builders representing different edge types from the same vertex
+    - merge(): Takes the union of dangling edge sets from multiple builders
+
+    The key insight: by treating this as an edge-centric problem rather than
+    vertex-centric, we can build graphs incrementally without knowing all vertices
+    in advance.
 
     Attributes:
-        head: the captured forward reference head.
+        nominal_refs: Set of edges of type "sequential flow" waiting for target vertex
+        flow_control_refs: Set of edges of type "conditional jump" waiting for target vertex
+        head: The target vertex (None until edges are resolved)
+        jump_token: Label for conditional jump edges
     """
 
     def __init__(self,
