@@ -11,7 +11,9 @@ All notable changes to Workflow Forge will be documented in this file.
 (2025-06-19)
 - We are pivoting to using entire strings of tokens, rather than requiring the user to setup special tokens in their tokenizer and embeddings. This adds complexity, but it is not unmanagable.
 - This involved adding the Token Trigger Detection Autonoma, to detect when a special command has been issued, and the Forced Token Feeding Autonoma, which can be triggered by a bool state and automatically claim the stream and feed tokens to force, for instance, '[NextZone]' into the stream on timeout.
-
+- Fixed all the various typing references to refer to an array of tokens rather than an int. userspace document still talks about a 'token' usually as that is what the user may think of as specifying.
+- Renamed folder ZCP to zcp, to comply with the style standards. Come to think of it, I need to write down the style standards don't I?
+- Added much stronger error coupling between zcp nodes and factory construction in program, ensuring that 
 
 ## [0.1.1] - 2025-06-18
 

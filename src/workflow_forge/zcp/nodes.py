@@ -101,6 +101,7 @@ class ZCPNode:
     Attributes:
         sequence: Name of UDPL sequence this zone belongs to
         block: Block number within the sequence
+        construction_callback: When given a mapping of placeholders to their replacements, returns text.
         resource_specs: Placeholder → resource mapping (unresolved)
         raw_text: Template text with {placeholder} syntax
         zone_advance_str: String that triggers advancement to next zone
@@ -110,6 +111,7 @@ class ZCPNode:
     """
     sequence: str
     block: int
+    construction_callback: Callable[[Dict[str, AbstractResource]],str]
     resource_specs: Dict[str, Dict[str, Any]]
     raw_text: str
     zone_advance_str: str
@@ -124,10 +126,38 @@ class ZCPNode:
             node = node.next_zone
         return node
 
+    def _make_sampling_factory(self,
+                               tokenizer: TokenizerInterface,
+                               resources: Dict[str, AbstractResource]
+                               ):
+        """
+        Factory for making the main sampling factory, which invokes the
+
+        :param tokenizer:
+        :param resources:
+        :return:
+        """
+
+        def sample()->np.ndarray:
+            """
+            Main sampling function, draws from the resources, fills
+            in placeholders, gets text, tokenizes, returns an ndarray.
+            :return: The tokenized text
+            """
+            try:
+                text = self.construction_callback(resources)
+                tokens = tokenizer.tokenize(text)
+                return np.array(tokens)
+            except Exception as err:
+
+                raise GraphLoweringError("Issue occurred while resolving resources or tokenizing texts",
+                                   self.block, self.sequence) from err
+        return sample
+
     def _lower_node(self,
-                    callback_factory: SamplerFactoryFactory,
+                    resources: Dict[str, AbstractResource],
                     tokenizer: TokenizerInterface,
-                    tag_converter: 'TagConverter'
+                    tag_converter: TagConverter
                     ) -> 'RZCPNode':
         """
         Convert this zcp node to RZCP representation.
@@ -141,23 +171,22 @@ class ZCPNode:
             RZCPNode with resolved tokenization and construction callback
         """
         try:
-            # Create construction callback using factory
-            error_callback = functools.partial(GraphLoweringError, sequence=self.sequence, block=self.block)
-            construction_callback = callback_factory(self.raw_text, self.resource_specs, error_callback)
+            for placeholder, spec in self.resource_specs.items():
+                resource_name = spec['name']
+                if resource_name not in resources:
+                    raise RuntimeError(f"Resource '{resource_name}' not found for placeholder '{placeholder}'")
 
-            # Tokenize zone advance token
-            zone_advance_tokens = tokenizer.tokenize(self.zone_advance_str)
-
-            # Convert tags to bool array
+            sampling_callback = self._make_sampling_factory(tokenizer, resources)
+            zone_advance_tokens = np.array(tokenizer.tokenize(self.zone_advance_str))
             tags_array = tag_converter.tensorize(self.tags)
 
             return RZCPNode(
                 sequence = self.sequence,
                 block = self.block,
-                zone_advance_tokens=np.array(zone_advance_tokens),
+                zone_advance_tokens=zone_advance_tokens,
                 tags=tags_array,
                 timeout=self.timeout,
-                construction_callback=construction_callback,
+                sampling_callback=sampling_callback,
                 input=False,
                 output=False,
                 next_zone=None,
@@ -169,34 +198,26 @@ class ZCPNode:
                                      block=self.block, sequence=self.sequence) from err
 
     def lower(self,
-              callback_factory: SamplerFactoryFactory,
+              resources: Dict[str, AbstractResource],
               tokenizer: TokenizerInterface,
-              tag_converter: 'TagConverter',
-              lowered_map: Optional[Dict['ZCPNode', 'RZCPNode']] = None) -> 'RZCPNode':
+              tag_converter: TagConverter,
+              ) -> 'RZCPNode':
         """
         Walk through entire graph and lower all nodes to RZCP, maintaining linkage.
         Handles cycles and complex flow control graphs correctly.
 
         Args:
-            callback_factory: Function that takes raw_text and resource_specs, returns construction callback
+            resources: The resolved resources that can now be used to lower this further.
             tokenizer: Function to convert strings to token arrays
             tag_converter: Converts tag names to boolean arrays
-            lowered_map: Map of already lowered nodes to avoid cycles
 
         Returns:
             Head of the lowered RZCP graph
         """
-        if lowered_map is None:
-            lowered_map = {}
-        if self in lowered_map:
-            return lowered_map[self]
-
-        lowered_self = self._lower_node(callback_factory, tokenizer, tag_converter)
-        lowered_map[self] = lowered_self
-
+        lowered_self = self._lower_node(resources, tokenizer, tag_converter)
         if self.next_zone is not None:
-            lowered_self.next_zone = self.next_zone.lower(callback_factory, tokenizer, tag_converter, lowered_map)
-
+            next_lowered = self.next_zone.lower(resources, tokenizer, tag_converter)
+            lowered_self.next_zone = next_lowered
         return lowered_self
 
 @dataclass
@@ -216,7 +237,7 @@ class RZCPNode:
         zone_advance_tokens: Token List ID that triggers advancement to next zone
         tags: Boolean array indicating which tags apply to this zone
         timeout: Maximum tokens to generate before forcing advancement
-        construction_callback: Function that returns tokenized prompt (no params, everything resolved)
+        sampling_callback: Function that returns tokenized prompt (no params, everything resolved)
         input: If True, zone feeds from input buffer when prompt tokens exhausted
         output: If True, zone content is captured for extraction
         next_zone: Next zone in the execution chain
@@ -228,7 +249,7 @@ class RZCPNode:
     zone_advance_tokens: np.ndarray
     tags: np.ndarray
     timeout: int
-    construction_callback: Callable[[], np.ndarray]
+    sampling_callback: Callable[[], np.ndarray]
     input: bool = False
     output: bool = False
     jump_tokens: Optional[np.ndarray] = None
@@ -284,7 +305,7 @@ class RZCPNode:
         """
         # Get the pre-tokenized prompt
         try:
-            tokens = self.construction_callback()
+            tokens = self.sampling_callback()
 
             return LZCPNode(
                 sequence=self.sequence,

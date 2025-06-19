@@ -11,7 +11,7 @@ from typing import Dict, Tuple, Any, Optional, Callable, List, Type
 from src.workflow_forge.zcp.builder import GraphBuilderNode
 from ..parsing.config_parsing import Config
 from ..resources import AbstractResource
-from ..zcp.nodes import ZCPNode, RZCPNode, SamplerFactoryFactory, SamplerFactory, GraphLoweringErrorFactory
+from ..zcp.nodes import ZCPNode, RZCPNode
 from .tag_converter import TagConverter
 from ..tokenizer_interface import TokenizerInterface
 from .tools import Toolbox, Tool
@@ -226,54 +226,8 @@ class Scope:
         if sequence_name not in self.sequences:
             raise ScopeException(f"Sequence '{sequence_name}' not found in available sequences")
 
-        # Get the zcp chain head
         zcp_head = self.sequences[sequence_name]
-
-        # Create callback factory that validates and captures resources.
-        #
-        # It should be kept in mind you will not understand what this is
-        # doing particularly well until you see how the callbacks are being
-        # used in the zcp module.
-        def callback_factory(raw_text: str,
-                             resource_specs: Dict[str, Dict[str, Any]],
-                             error_callback: GraphLoweringErrorFactory
-                             ) -> Callable[[], np.ndarray]:
-            try:
-                # Validate that all required resources exist
-                for placeholder, spec in resource_specs.items():
-                    resource_name = spec['name']
-                    if resource_name not in resources:
-                        raise ScopeException(f"Resource '{resource_name}' not found for placeholder '{placeholder}'")
-
-                # Create the deferred construction callback
-                def construction_callback():
-                    # Resolve placeholders using resources
-                    try:
-                        resolved_values = {}
-                        for placeholder, spec in resource_specs.items():
-                            resource_name = spec['name']
-                            arguments = spec.get('arguments')
-
-                            resource = resources[resource_name]
-                            if arguments is not None:
-                                resolved_values[placeholder] = resource(**arguments)
-                            else:
-                                resolved_values[placeholder] = resource()
-
-                        # Format the text with resolved values
-                        resolved_text = raw_text.format(**resolved_values)
-
-                        # Tokenize and return
-                        return self.tokenizer.tokenize(resolved_text)
-                    except Exception as err:
-                        raise error_callback("Failed to run sampling process") from err
-
-                return construction_callback
-            except Exception as err:
-                raise error_callback("Failed to successfully make the sampler callback") from err
-
-        # Lower the zcp chain to RZCP using our callback factory
-        return zcp_head.lower(callback_factory, self.tokenizer, self.tag_converter)
+        return zcp_head.lower(resources, self.tokenizer, self.tag_converter)
 
     def replace_builder(self,
                         builder: GraphBuilderNode
@@ -401,10 +355,12 @@ class Scope:
 def make_placeholder_node(tag_converter: TagConverter) -> RZCPNode:
     """Create a placeholder node for graph construction."""
     return RZCPNode(
-        zone_advance_token=0,  # Dummy token
+        sequence="",
+        block = 0,
+        zone_advance_tokens=np.array([]),  # Dummy token
         tags=tag_converter.tensorize([]),  # No tags
         timeout=0,  # No timeout
-        construction_callback=lambda: np.array([]),  # Empty tokens
+        sampling_callback=lambda: np.array([]),  # Empty tokens
         input=False,
         output=False
     )
