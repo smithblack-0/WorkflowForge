@@ -7,7 +7,8 @@
 
 Capabilities explicitly supported by the project are:
 
-* Stupid straightforward prompting configuration at all levels of complexity from beginner to expert.
+* Server/Client split. The client may produce workflows and dispatch them to a server, which then serializes and runs it. Make sure to remember to prompt your model to emit the relevant control tokens during setup. 
+* Straightforward prompting configuration at all levels of complexity from beginner to expert.
 * Batched generation with flow control and different decisions under the Single Workflow, Multiple Streams (SWMS) principle. Muliple Workflow, Multiple Streams is not currently supported. This is explicitly designed for mass generation of synthetic training data, the original use case.
 * Python interaction with tool usage. This, however, blocks batched execution so run it in your own thread and mock tool usage during training. This could be extended in future versions to eject and move onto another batch while the tool resolves.
 * Automatic extracting of synthetic data or audit data by generative zones post-generation.
@@ -350,7 +351,7 @@ program.extract(name="feedback",
                 tags = ["Feedback"])
 
 # Compile the program. 
-controller_factory = program.compile(backend="default")
+workflow_factory = program.compile(backend="default")
 ```
 
 ### Deployment by Backend

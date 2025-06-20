@@ -28,32 +28,104 @@ Model continues generating from new context
 
 Note additionally that an extra extension means this remains compatible with your existing tokenizers, without having to extend your embeddings. From a userspace perspective these are tokens; however, they need not be added to your tokenizer.
 
-### The Architecture
+## The Architecture
 
-Workflow Forge uses a 4-stage compilation pipeline inspired by traditional compilers:
+Workflow Forge uses a multistage compilation pipeline with a clean location to
+serialize for frontend/backend separation. Naturally, it is perfectly possible
+to run the backend on the same machine as the frontend, and even possible to
+skip serialization alltogether; nonetheless, web API hooks are provided.
+
+### Frontend (Client-Side Compilation)
 
 ```
-UDPL (Config) → SFCS (Programming) → ZCP (Bytecode) → TTFA (Execution)
-     ↓               ↓                  ↓               ↓
-TOML Files → Python Flow Control → IR Graph → GPU Tensors
+[Frontend userspace.............]   [Compiling chain (front)...............]
+UDPL (Config) → SFCS (Programming) → ZCP      → RZCP      → SZCP
+    ↓               ↓                ↓          ↓             ↓
+TOML Files → Python Flow Control → Blocks → Sampling → SerializableIR
 ```
 
-Each stage is modular and extensible - you can write your own frontend languages or target different backends.
+SZCP can be serialized at any point, and sends raw
+data rather than pickle. Note that as far as the user needs
+to be concerned they only ever interact with the frontend
+userspace.
+
+### Backend (Server-Side Execution)  
+
+```
+[Compiling chain (backend)]  [Backend Execution...........]
+SZCP        →     LZCP →     ByteTTFA   → GPU Execution
+ ↓                  ↓              ↓           ↓
+SerializableIR → Tokenized → Instructions → Results
+```
+
+### Key Stages:
+- **ZCP**: Sequence linked lists. Think a 'scope'
+- **RZCP**: Graph with resolved flow control and resource callbacks. 
+            Lowering this samples the resources
+- **SZCP**: Fully resolved, serializable workflow.
+- **LZCP**: Tokenized, ready for compiling to bytecode.
+- **ByteTTFA**: Compiled bytecode running on GPU finite automata
+
+### Deployment Flexibility:
+- **Local**: Full pipeline in one process
+- **Distributed**: Frontend compiles to SZCP → HTTP → Backend executes  
+- **Hybrid**: Teams can build workflows locally, deploy remotely
+
+The **SZCP serialization boundary** enables "compile locally, execute remotely" workflows while keeping each stage modular and extensible. Nonetheless, this is intended to be a framework core and while an example using remote access is planned, broader integration of the core into wrappers is not the job of this core.
 
 ## How It Works
 
-### 1. Declarative Configuration (UDPL)
+To make a working WF project, you setup the frontend, the backend, and move information
+between them. A forge project needs a frontend and a backend to run, but there is no reason
+whatsoever you cannot have the backend on the same machine as the frontend.
+
+### 1. Setup System
+
+In this case we will use a simple direct interface
+```python
+import workflow_forge as forge
+
+
+# We are configuring this for local execution
+backend = forge.make_backend(model,
+                             tokenizer,
+                             type="default"
+                             )
+server = forge.make_server(backend, address=None, ident=None)
+client = forge.make_client(server)
+```
+
+An alternative illustration of the remote capability is
+
+```python
+server = forge.make_server(address="http://localhost:8000", auth_type=None, auth_payload=None)
+client = forge.make_client(address="http://localhost:8000", auth_type=None, auth_payload=None)
+```
+
+Note until someone competent can show me how to implement auth safely, I am not touching it; api hooks are going to be available, but I do NOT trust myself to not fuck up crypto work somehow. So auth-type will be a registry of capabilities, and auth-payload whatever that ultimately expects.
+
+### 2. Declarative Configuration (UDPL)
+
 Define your prompts and data extraction rules in human-readable TOML:
 
 ```toml
 [config]
 zone_tokens = ["[Prompt]", "[Answer]", "[EOS]"]
+required_tokens = ["[Prompt]"]
 sequences = ["control", "reasoning", "conclusion"]
 valid_tags = ["Training", "Correct", "Feedback"]
 control_token = "[Jump]"
 escape_token = "[Escape]"
+override = {"eos_token" : []}
 
-
+[[setup]]
+text = """
+[Prompt] From now on you will frequently see [Escape] "[Prompt]" tokens, which indicate you are receiving a prompt from the user or system, and [Escape] "[Answer]" tokens which means you are being given room to answer yourself. Keep that in mind moving forward. After the final [Escape] "[Answer]" token you would need to produce your normal [Escape] "[EOS]" tokens. As a final note, a [Escape] "[Escape]" token should be ignored and just influences external flow control. You should never generate one of these tokens unless you intend to advance zones, unless you first put an escape token in place.
+[Answer] 
+I understand. The [Escape] "[Prompt]" token means the user has something to say, the [Escape] "[Answer]" token is where I talk, and the [Escape] "[EOS]" token ends a section. I use and see [Escape] "[Escape]" tokens to skip causing actions for the upcoming control token.
+[EOS]
+"""
+tags = [[], []]
 
 [[control]]
 text = """
@@ -81,51 +153,46 @@ text = "[Prompt] State your final conclusion. Only tokens after the answer count
 tags = [[], ["answer"]]
 ```
 
-### 2. Flow Control Programming (SFCS)
-Write Python-like code that compiles to GPU execution:
-
+Parse them into python.
 ```python
 # Parse configuration
 sequences, config = forge.parse_udpl_file("workflow.toml")
+```
+
+### 3. Flow Control Programming (SFCS)
+Write Python-like code that compiles to GPU execution. Resources, seen as an empty dictionary in this case, also allow replacement between batches of strings based on placeholders. To keep it simple we do not include one, but invoking the workflow factory has the effect of sampling the resources.
+
+```python
 
 # Program the flow control
-program = forge.new_program(sequences, resources, config, tokenizer)
+program = forge.new_program(sequences, {}, config)
+program.run("setup")
 with program.loop("control") as loop:
     loop.run("reasoning",  question="Are you alive?")  # Model decides when to break via [Jump] token
 program.run("conclusion")
 program.extract("training_data", tags=["answer"])
 
-# Compile to autonomous agents
-controller_factory = program.compile()
+# Compile to a workflow factory
+workflow_factory = program.compile()
 ```
 
-### 3. Autonomous Execution
-Deploy hundreds of independent agents:
+### 4 Execution.
+
+Naturally, remote execution is about the same thing. Note that with the direct connection used here the we are directly calling into the server.
 
 ```python
-# Each batch creates autonomous agents
-training_data = []
+samples = []
 for batch in range(1000):
-    
-    # Note that this sets up the FSM backend. No further dynamic injection is possible. 
-    flow_manager = controller_factory(batch_size=32, starting_token="[BOS]")
-    
-    # Agent runs autonomously on GPU
-    while not flow_manager.done():
-        tokens = flow_manager.next()      # Get next tokens to feed
-        tokens = model.generate(tokens)   # Model generates response
-        flow_manager.advance(tokens)      # Agent processes output
-    
-    # Extract results
-    results = flow_manager.extract()
-    training_data.extend(results["training_data"])
+    workflow = workflow_factory() #<- This is sampling resources if they existing. This allows feedback between batches.
+    results = client.request(config, workflow, batch_size=500)
+    samples.extend(results["training_data"])
 ```
-
-**Key insight**: The model's own token outputs (like `[Jump]`) control the agent's execution flow. No Python logic runs during generation.
 
 ## Use Cases
 
 **Synthetic Data Generation**: Generate thousands of reasoning chains with different complexity levels and extract training pairs automatically. Draw all samples from a configuration in one pass.
+
+**Mass Sampling**: Sample the same question 500 times. Keep the best result. Repeat.
 
 **Constitutional AI**: Self-improving systems where agents evaluate their own outputs and provide feedback for future iterations.
 
