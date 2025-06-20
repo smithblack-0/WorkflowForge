@@ -220,6 +220,12 @@ class ZCPNode:
             lowered_self.next_zone = next_lowered
         return lowered_self
 
+    def __hash__(self):
+        return id(self)
+
+    def __eq__(self, other):
+        return self is other
+
 @dataclass
 class RZCPNode:
     """
@@ -317,8 +323,8 @@ class RZCPNode:
                 input=self.input,
                 output=self.output,
                 next_zone=None,  # Will be wired later
-                jump_tokens=self.jump_tokens,
-                jump_zone=None,  # Will be wired later
+                jump_tokens=None,
+                jump_zone=None,
                 tool_callback = self.tool_callback
             )
         except Exception as err:
@@ -346,6 +352,7 @@ class RZCPNode:
             lowered_self.next_zone = self.next_zone.lower(lowered_map)
         if self.jump_zone is not None:
             lowered_self.jump_zone = self.jump_zone.lower(lowered_map)
+            lowered_self.jump_tokens = self.jump_tokens
         return lowered_self
 
     def attach(self, sources: List['RZCPNode'])->'RZCPNode':
@@ -358,6 +365,12 @@ class RZCPNode:
         for source in sources:
             source.next_zone = self
         return self
+
+    def __hash__(self):
+        return id(self)
+
+    def __eq__(self, other):
+        return self is other
 
 @dataclass
 class LZCPNode:
@@ -428,7 +441,7 @@ class LZCPNode:
 
             # Validate tokens array
             if not isinstance(self.tokens, np.ndarray):
-                raise TypeError("tokens must be a numpy array")
+                raise TypeError(f"tokens must be a numpy array, got {type(self.tokens)}")
             if self.tokens.ndim != 1:
                 raise ValueError("tokens must be a 1D array")
             if self.tokens.dtype not in [np.int32, np.int64]:
@@ -479,6 +492,12 @@ class LZCPNode:
         :return: The last node of the chain we could find
         """
         node = self
-        while self.next_zone is not None:
-            node = self.next_zone
+        while node.next_zone is not None:
+            node = node.next_zone
         return node
+
+    def __hash__(self):
+        return id(self)
+
+    def __eq__(self, other):
+        return self is other
