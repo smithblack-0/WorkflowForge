@@ -92,14 +92,7 @@ backend = forge.make_backend(model,
                              type="default"
                              )
 server = forge.make_server(backend, address=None, ident=None)
-client = forge.make_client(server)
-```
-
-An alternative illustration of the remote capability is
-
-```python
-server = forge.make_server(address="http://localhost:8000", auth_type=None, auth_payload=None)
-client = forge.make_client(address="http://localhost:8000", auth_type=None, auth_payload=None)
+session = forge.make_session(server)
 ```
 
 Note until someone competent can show me how to implement auth safely, I am not touching it; api hooks are going to be available, but I do NOT trust myself to not fuck up crypto work somehow. So auth-type will be a registry of capabilities, and auth-payload whatever that ultimately expects.
@@ -116,7 +109,7 @@ sequences = ["control", "reasoning", "conclusion"]
 valid_tags = ["Training", "Correct", "Feedback"]
 control_token = "[Jump]"
 escape_token = "[Escape]"
-override = {"eos_token" : []}
+tokenizer_override = {"eos_token" : "[EOS]"}
 
 [[setup]]
 text = """
@@ -187,7 +180,7 @@ for batch in range(1000):
     results = client.request(config, workflow, batch_size=500)
     samples.extend(results["training_data"])
 ```
-
+    
 ## Use Cases
 
 **Synthetic Data Generation**: Generate thousands of reasoning chains with different complexity levels and extract training pairs automatically. Draw all samples from a configuration in one pass.
