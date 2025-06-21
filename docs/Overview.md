@@ -1,13 +1,16 @@
 # Overview
 
- Workflow Forge (WF) is a system consisting of a prompting frontend and configuration language, a flow control language, an IR compiler, and a final backend consisting of a FSM designed to operate with flow control on the GPU.It compiles an automatic structure to run a process using flow control on a single model. It runs without exiting to python for flow control in most situations.
+ Workflow Forge (WF) is a system designed to make designing and executing complex workflows with many stages and fed prompts straightforward, easy, and blindingly fast. It's primary benefit is **Mass Sampling** - one configured workflow can be dispatched and drawn from 500 times with just as much speed as drawing one sample, so long as the batch width does not overwhelm gpu parallelism. Additionally, each workflow can include flow control, the model can make independent decisions along the way, and remote execution of workflows is supported.
 
 # Project introduction
 ## What does this do?
 
 Capabilities explicitly supported by the project are:
 
-* Server/Client split. The client may produce workflows and dispatch them to a server, which then serializes and runs it. Make sure to remember to prompt your model to emit the relevant control tokens during setup. 
+* Server/Client split. The client may produce workflows and dispatch them to a server, which then serializes and run it. 
+* Easy configuration of servers and clients. ATM, however, flow control is not pa
+
+
 * Straightforward prompting configuration at all levels of complexity from beginner to expert.
 * Batched generation with flow control and different decisions under the Single Workflow, Multiple Streams (SWMS) principle. Muliple Workflow, Multiple Streams is not currently supported. This is explicitly designed for mass generation of synthetic training data, the original use case.
 * Python interaction with tool usage. This, however, blocks batched execution so run it in your own thread and mock tool usage during training. This could be extended in future versions to eject and move onto another batch while the tool resolves.
