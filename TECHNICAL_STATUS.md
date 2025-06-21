@@ -28,17 +28,17 @@ When something has all green checkmarks, it is completely done to initial releas
 ## Status
 
 | Component                      |Architecture|Programming|Tested|Integrated|Integration Testing|
-|--------------------------------|--|--|--|--|-|
+|--------------------------------|--|--|-|-|-|
 | State machine PoC              |✅|✅|✅|✅|✅
-| UDPL                           |✅|✅|✅|🚧|❌|
+| UDPL                           |✅|✅|✅|✅|✅|
 | Resources                      |✅|🚧|🚧|❌|❌|
 | SFCS-Constuction               |✅|✅|🚧|❌|❌|
 | SFCS-Intake                    |✅|🚧|❌|❌|❌|
 | SFCS-Tools                     |❌|❌|❌|❌|❌|
 | ZCP-Architecture               |✅|✅|✅|✅|✅|
-| ZCP-Nodes                      |✅|✅|✅|❌|❌|
+| ZCP-Nodes                      |✅|✅|✅|✅|✅|
 | ZCP-GraphBuilder               |✅|✅|✅|❌|❌|
-| ZCP-Serialization              |✅|🚧|❌|❌|❌|
+| ZCP-Serialization              |✅|✅|✅|❌|❌|
 | Backend - Compiling/Flattening |✅|❌|❌|❌|❌|
 | Backend - MOA                  |✅|❌|❌|❌|❌|
 | Backend - Support              |✅|❌|❌|❌|❌|
@@ -49,22 +49,14 @@ When something has all green checkmarks, it is completely done to initial releas
 
 # Current issues and priorities
 
-* ZCP needs a rebuild now we are binding tools to the server instance
 * Same for SFCS tools and supporting methods, for the same reasons.
-* ZCP needs to have serialization node level added, and SFCS will need to be changed appropriately.
 * Tools needs a rebuild, and once done the documentation will need to be updated.
 * Resources needs actual documentation, and to be fleshed out more fully in terms of classes.
 * Graph Builder may be out of sync with frontend
-* Serialization section of ZCP module still needs coding to capture config, even if backend node serialization process is doen.
 
 ## Next steps
 
 Mainly getting serialization and server systems in place. A few minor changes appear to be needed.
-
-STEP: Serialization Node support
-* Rebuild ZCP to add serializable SZCP nodes
-* Rebuild SFCS-Construction to match the new ZCP system
-* Hunt down and rebuild documentation to reflect new reality that tokenization is needed only in the backend stage.
 
 STEP: Serialization Tokenization Support:
 * Rebuild config parsing, other systems, slightly in order to ensure users can set tokenizer overrides in their configs.
@@ -74,3 +66,7 @@ STEP: Tool Serialization Support
 * Rebuilt tooling frontend system to request tool usage by name, not by passing callbacks directly.
 * Rebuilt system to include this information in config.
 
+## Milestones/Brag list
+
+- All ZCP nodes complete with integration testing 6-21-2025.
+- 

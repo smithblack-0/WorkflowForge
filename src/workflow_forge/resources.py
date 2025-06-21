@@ -9,6 +9,7 @@ mechanism.
 
 from abc import ABC, abstractmethod
 from typing import List, Union
+import numpy as np
 
 class AbstractResource(ABC):
     """
@@ -35,19 +36,22 @@ class StaticStringResource(AbstractResource):
     def __call__(self)->str:
         return self.string
 
+
 class ListSamplerResource(AbstractResource):
     """
     A string sampler resource is capable of drawing
     samples randomly from among an internal
     list of strings.
     """
+
     def __init__(self, string_list: List[str]):
         assert len(string_list) > 0
         self.string_list = string_list
-    def __call__(self, num_samples: Union[int, str])->str:
+
+    def __call__(self, num_samples: Union[int, str]) -> str:
         output = []
         if isinstance(num_samples, int):
-            samples = torch.randint(0, len(self.string_list), [num_samples])
+            samples = np.random.randint(0, len(self.string_list), size=num_samples)
             for idx in samples:
                 output.append(self.string_list[idx])
         elif isinstance(num_samples, str):

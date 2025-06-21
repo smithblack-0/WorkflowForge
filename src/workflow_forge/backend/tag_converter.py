@@ -28,15 +28,15 @@ class TagConverter:
         return len(self.tag_conversions)
 
     def __init__(self,
-                 tag_conversions: Dict[str, int]
+                 tag_conversions: List[str]
                  ):
         """
         The initialization of the tag converter
-        :param tag_conversions: A one-to-one mapping of tag name
-            to int value
+        :param tag_conversions: A list of supported tags
+
         """
-        self.tag_conversions = tag_conversions
-        self.inverse_conversions = {v : k for k, v in tag_conversions.items()}
+        self.tag_conversions = dict(zip(tag_conversions, range(len(tag_conversions))))
+        self.inverse_conversions = {v : k for k, v in self.tag_conversions.items()}
 
     def tensorize(self, tags: List[str]) -> np.ndarray:
         """
