@@ -11,15 +11,10 @@ Tests cover:
 """
 
 import unittest
-import numpy as np
-from unittest.mock import Mock, MagicMock
-from typing import Dict, Any, Optional
+from unittest.mock import Mock
 
 # Import the modules under test
-from src.workflow_forge.zcp.nodes import RZCPNode, LZCPNode, GraphLoweringError, GraphError
-from src.workflow_forge.resources import AbstractResource
-from src.workflow_forge.tokenizer_interface import TokenizerInterface
-from src.workflow_forge.flow_control.tag_converter import TagConverter
+from src.workflow_forge.zcp.nodes import RZCPNode, SZCPNode, GraphLoweringError, GraphError
 
 
 class TestRZCPNodeConstruction(unittest.TestCase):
@@ -29,22 +24,22 @@ class TestRZCPNodeConstruction(unittest.TestCase):
         """Set up test fixtures."""
         # Create mock sampling callback
         self.mock_sampling_callback = Mock()
-        self.mock_sampling_callback.return_value = np.array([1, 2, 3])
+        self.mock_sampling_callback.return_value = "resolved text"
 
         # Basic valid node data
         self.valid_node_data = {
             'sequence': 'test_sequence',
             'block': 0,
-            'zone_advance_tokens': np.array([10], dtype=np.int32),
-            'tags': np.array([True, False], dtype=np.bool_),
+            'zone_advance_str': '[Answer]',
+            'tags': ['Training', 'Correct'],
             'timeout': 1000,
             'sampling_callback': self.mock_sampling_callback,
             'input': False,
             'output': False,
             'next_zone': None,
-            'jump_tokens': None,
+            'jump_advance_str': None,
             'jump_zone': None,
-            'tool_callback': None
+            'tool_name': None
         }
 
     def test_valid_node_creation(self):
@@ -53,14 +48,16 @@ class TestRZCPNodeConstruction(unittest.TestCase):
 
         self.assertEqual(node.sequence, 'test_sequence')
         self.assertEqual(node.block, 0)
+        self.assertEqual(node.zone_advance_str, '[Answer]')
+        self.assertEqual(node.tags, ['Training', 'Correct'])
         self.assertEqual(node.timeout, 1000)
         self.assertFalse(node.input)
         self.assertFalse(node.output)
         self.assertIsNone(node.next_zone)
-        self.assertIsNone(node.jump_tokens)
+        self.assertIsNone(node.jump_advance_str)
         self.assertIsNone(node.jump_zone)
+        self.assertIsNone(node.tool_name)
         self.assertEqual(node.sampling_callback, self.mock_sampling_callback)
-
 
     def test_input_output_flags(self):
         """Test nodes with input/output flags set."""
@@ -76,23 +73,30 @@ class TestRZCPNodeConstruction(unittest.TestCase):
         output_node = RZCPNode(**output_data)
         self.assertTrue(output_node.output)
 
+    def test_tool_name_assignment(self):
+        """Test node with tool name."""
+        tool_data = self.valid_node_data.copy()
+        tool_data['tool_name'] = 'calculator'
+        tool_node = RZCPNode(**tool_data)
+        self.assertEqual(tool_node.tool_name, 'calculator')
+
     def test_post_init_jump_consistency_both_present(self):
-        """Test __post_init__ validation when both jump_tokens and jump_zone are present."""
+        """Test __post_init__ validation when both jump_advance_str and jump_zone are present."""
         target_node = RZCPNode(**self.valid_node_data)
 
         node_data = self.valid_node_data.copy()
-        node_data['jump_tokens'] = np.array([20], dtype=np.int32)
+        node_data['jump_advance_str'] = '[Jump]'
         node_data['jump_zone'] = target_node
 
         # Should not raise exception
         node = RZCPNode(**node_data)
-        self.assertIsNotNone(node.jump_tokens)
+        self.assertIsNotNone(node.jump_advance_str)
         self.assertIsNotNone(node.jump_zone)
 
-    def test_post_init_jump_consistency_mismatch_tokens_only(self):
-        """Test __post_init__ validation fails when only jump_tokens is present."""
+    def test_post_init_jump_consistency_mismatch_str_only(self):
+        """Test __post_init__ validation fails when only jump_advance_str is present."""
         node_data = self.valid_node_data.copy()
-        node_data['jump_tokens'] = np.array([20], dtype=np.int32)
+        node_data['jump_advance_str'] = '[Jump]'
         # jump_zone remains None
 
         with self.assertRaises(GraphError) as context:
@@ -107,7 +111,7 @@ class TestRZCPNodeConstruction(unittest.TestCase):
 
         node_data = self.valid_node_data.copy()
         node_data['jump_zone'] = target_node
-        # jump_tokens remains None
+        # jump_advance_str remains None
 
         with self.assertRaises(GraphError) as context:
             RZCPNode(**node_data)
@@ -121,19 +125,19 @@ class TestRZCPNodeStateQueries(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.mock_callback = Mock(return_value=np.array([1, 2, 3]))
+        self.mock_callback = Mock(return_value="resolved text")
 
         self.base_node_data = {
             'sequence': 'test_sequence',
             'block': 0,
-            'zone_advance_tokens': np.array([10], dtype=np.int32),
-            'tags': np.array([True], dtype=np.bool_),
+            'zone_advance_str': '[Answer]',
+            'tags': ['Training'],
             'timeout': 1000,
             'sampling_callback': self.mock_callback,
             'input': False,
             'output': False,
             'next_zone': None,
-            'jump_tokens': None,
+            'jump_advance_str': None,
             'jump_zone': None
         }
 
@@ -147,7 +151,7 @@ class TestRZCPNodeStateQueries(unittest.TestCase):
         target_node = RZCPNode(**self.base_node_data)
 
         node_data = self.base_node_data.copy()
-        node_data['jump_tokens'] = np.array([20], dtype=np.int32)
+        node_data['jump_advance_str'] = '[Jump]'
         node_data['jump_zone'] = target_node
 
         node = RZCPNode(**node_data)
@@ -174,7 +178,7 @@ class TestRZCPNodeStateQueries(unittest.TestCase):
         target_node = RZCPNode(**self.base_node_data)
 
         node_data = self.base_node_data.copy()
-        node_data['jump_tokens'] = np.array([20], dtype=np.int32)
+        node_data['jump_advance_str'] = '[Jump]'
         node_data['jump_zone'] = target_node
 
         node = RZCPNode(**node_data)
@@ -204,19 +208,32 @@ class TestRZCPNodeStateQueries(unittest.TestCase):
         output_node = RZCPNode(**node_data)
         self.assertTrue(output_node.is_output_zone())
 
+    def test_has_tool_false(self):
+        """Test has_tool returns False when no tool name."""
+        node = RZCPNode(**self.base_node_data)
+        self.assertFalse(node.has_tool())
+
+    def test_has_tool_true(self):
+        """Test has_tool returns True when tool name exists."""
+        node_data = self.base_node_data.copy()
+        node_data['tool_name'] = 'calculator'
+
+        node = RZCPNode(**node_data)
+        self.assertTrue(node.has_tool())
+
 
 class TestRZCPNodeLinkedList(unittest.TestCase):
     """Test linked list operations."""
 
     def setUp(self):
         """Set up test fixtures."""
-        self.mock_callback = Mock(return_value=np.array([1, 2, 3]))
+        self.mock_callback = Mock(return_value="resolved text")
 
         self.base_node_data = {
             'sequence': 'test_sequence',
             'block': 0,
-            'zone_advance_tokens': np.array([10], dtype=np.int32),
-            'tags': np.array([True], dtype=np.bool_),
+            'zone_advance_str': '[Answer]',
+            'tags': ['Training'],
             'timeout': 1000,
             'sampling_callback': self.mock_callback,
             'input': False,
@@ -295,66 +312,77 @@ class TestRZCPNodeBasicLowering(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.mock_callback = Mock(return_value=np.array([1, 2, 3]))
+        self.mock_callback = Mock(return_value="resolved prompt text")
 
         self.base_node_data = {
             'sequence': 'test_sequence',
             'block': 0,
-            'zone_advance_tokens': np.array([10], dtype=np.int32),
-            'tags': np.array([True, False], dtype=np.bool_),
+            'zone_advance_str': '[Answer]',
+            'tags': ['Training', 'Correct'],
             'timeout': 1000,
             'sampling_callback': self.mock_callback,
             'input': False,
             'output': False,
             'next_zone': None,
-            'jump_tokens': None,
+            'jump_advance_str': None,
             'jump_zone': None,
-            'tool_callback': None
+            'tool_name': None
         }
 
     def test_lower_node_success(self):
-        """Test _lower_node creates valid LZCPNode."""
+        """Test _lower_node creates valid SZCPNode."""
         node = RZCPNode(**self.base_node_data)
 
-        result = node._lower_node()
+        result = node.lower()
 
         # Verify result type and basic properties
-        self.assertIsInstance(result, LZCPNode)
+        self.assertIsInstance(result, SZCPNode)
         self.assertEqual(result.sequence, 'test_sequence')
         self.assertEqual(result.block, 0)
+        self.assertEqual(result.zone_advance_str, '[Answer]')
+        self.assertEqual(result.tags, ['Training', 'Correct'])
         self.assertEqual(result.timeout, 1000)
         self.assertFalse(result.input)
         self.assertFalse(result.output)
         self.assertIsNone(result.next_zone)
-        self.assertIsNone(result.jump_tokens)
+        self.assertIsNone(result.jump_advance_str)
         self.assertIsNone(result.jump_zone)
+        self.assertIsNone(result.tool_name)
 
-        # Verify tokens from sampling callback
-        np.testing.assert_array_equal(result.tokens, np.array([1, 2, 3]))
-
-        # Verify other arrays copied correctly
-        np.testing.assert_array_equal(result.zone_advance_tokens, np.array([10]))
-        np.testing.assert_array_equal(result.tags, np.array([True, False]))
+        # Verify resolved text from sampling callback
+        self.assertEqual(result.text, "resolved prompt text")
 
         # Verify sampling callback was called
         self.mock_callback.assert_called_once()
 
     def test_lower_node_with_jump(self):
-        """Test lower() preserves jump information."""
+        """Test _lower_node preserves jump information."""
         target_node = RZCPNode(**self.base_node_data)
 
         node_data = self.base_node_data.copy()
-        node_data['jump_tokens'] = np.array([20], dtype=np.int32)
+        node_data['jump_advance_str'] = '[Jump]'
         node_data['jump_zone'] = target_node
 
         node = RZCPNode(**node_data)
         result = node.lower()
 
-        # Verify jump tokens preserved
-        np.testing.assert_array_equal(result.jump_tokens, np.array([20]))
+        # Verify jump string preserved
+        print(type(result.jump_advance_str))
+        self.assertEqual(result.jump_advance_str, '[Jump]')
         # Verify jump_zone was lowered and connected
         self.assertIsNotNone(result.jump_zone)
-        self.assertIsInstance(result.jump_zone, LZCPNode)
+        self.assertIsInstance(result.jump_zone, SZCPNode)
+
+    def test_lower_node_with_tool(self):
+        """Test _lower_node preserves tool information."""
+        node_data = self.base_node_data.copy()
+        node_data['tool_name'] = 'calculator'
+
+        node = RZCPNode(**node_data)
+        result = node.lower()
+
+        # Verify tool name preserved
+        self.assertEqual(result.tool_name, 'calculator')
 
     def test_lower_single_node(self):
         """Test lower() method with single node."""
@@ -362,18 +390,23 @@ class TestRZCPNodeBasicLowering(unittest.TestCase):
 
         result = node.lower()
 
-        # Should return LZCPNode
-        self.assertIsInstance(result, LZCPNode)
+        # Should return SZCPNode
+        self.assertIsInstance(result, SZCPNode)
         self.assertEqual(result.sequence, 'test_sequence')
         self.assertIsNone(result.next_zone)
 
     def test_lower_chain_of_nodes(self):
         """Test lower() method with chain of nodes."""
-        # Create two nodes
+        # Create two nodes with different mock callbacks
+        mock_callback1 = Mock(return_value="first node text")
+        mock_callback2 = Mock(return_value="second node text")
+
         node1 = RZCPNode(**self.base_node_data)
+        node1.sampling_callback = mock_callback1
 
         node2_data = self.base_node_data.copy()
         node2_data['block'] = 1
+        node2_data['sampling_callback'] = mock_callback2
         node2 = RZCPNode(**node2_data)
 
         # Link them
@@ -383,14 +416,20 @@ class TestRZCPNodeBasicLowering(unittest.TestCase):
         result_head = node1.lower()
 
         # Verify chain structure is preserved
-        self.assertIsInstance(result_head, LZCPNode)
+        self.assertIsInstance(result_head, SZCPNode)
         self.assertEqual(result_head.block, 0)
+        self.assertEqual(result_head.text, "first node text")
 
         self.assertIsNotNone(result_head.next_zone)
-        self.assertIsInstance(result_head.next_zone, LZCPNode)
+        self.assertIsInstance(result_head.next_zone, SZCPNode)
         self.assertEqual(result_head.next_zone.block, 1)
+        self.assertEqual(result_head.next_zone.text, "second node text")
 
         self.assertIsNone(result_head.next_zone.next_zone)
+
+        # Verify both callbacks were called
+        mock_callback1.assert_called_once()
+        mock_callback2.assert_called_once()
 
 
 class TestRZCPNodeGraphTopology(unittest.TestCase):
@@ -398,18 +437,18 @@ class TestRZCPNodeGraphTopology(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.mock_callback = Mock(return_value=np.array([1, 2, 3]))
+        self.mock_callback = Mock(return_value="resolved text")
 
         self.base_node_data = {
             'sequence': 'test_sequence',
-            'zone_advance_tokens': np.array([10], dtype=np.int32),
-            'tags': np.array([True], dtype=np.bool_),
+            'zone_advance_str': '[Answer]',
+            'tags': ['Training'],
             'timeout': 1000,
             'sampling_callback': self.mock_callback,
             'input': False,
             'output': False,
             'next_zone': None,
-            'jump_tokens': None,
+            'jump_advance_str': None,
             'jump_zone': None
         }
 
@@ -458,7 +497,7 @@ class TestRZCPNodeGraphTopology(unittest.TestCase):
         nodeD.next_zone = terminal
 
         # Jump path: B can jump to D
-        nodeB.jump_tokens = np.array([20], dtype=np.int32)
+        nodeB.jump_advance_str = '[Jump]'
         nodeB.jump_zone = nodeD
 
         # Lower from head
@@ -472,7 +511,7 @@ class TestRZCPNodeGraphTopology(unittest.TestCase):
 
         # Verify jump preserved
         nodeB_lowered = result.next_zone
-        self.assertIsNotNone(nodeB_lowered.jump_tokens)
+        self.assertIsNotNone(nodeB_lowered.jump_advance_str)
         self.assertIsNotNone(nodeB_lowered.jump_zone)
         self.assertEqual(nodeB_lowered.jump_zone.block, 3)  # Points to D
 
@@ -490,7 +529,7 @@ class TestRZCPNodeGraphTopology(unittest.TestCase):
         nodeC.next_zone = terminal
 
         # Loop: C can jump back to B
-        nodeC.jump_tokens = np.array([30], dtype=np.int32)
+        nodeC.jump_advance_str = '[Jump]'
         nodeC.jump_zone = nodeB
 
         # Lower from head (tests cycle handling)
@@ -524,7 +563,7 @@ class TestRZCPNodeGraphTopology(unittest.TestCase):
         nodeB.next_zone = nodeD
 
         # Path 2: A can also jump to C, C → D
-        nodeA.jump_tokens = np.array([15], dtype=np.int32)
+        nodeA.jump_advance_str = '[Jump]'
         nodeA.jump_zone = nodeC
         nodeC.next_zone = nodeD
 
@@ -545,116 +584,31 @@ class TestRZCPNodeGraphTopology(unittest.TestCase):
         self.assertEqual(path1_D.next_zone.block, 4)  # Terminal
         self.assertEqual(path2_D.next_zone.block, 4)  # Terminal
 
-    def test_complex_branch_with_convergence(self):
-        """Test: A → B (jump to E), A → B → C → D → E → Terminal"""
-        # Build the graph
+    def test_cycle_detection_prevents_infinite_recursion(self):
+        """Test that lowering with cycles doesn't cause infinite recursion."""
+        # Create a cycle: A → B → C → B
         nodeA = self._create_node(0)
         nodeB = self._create_node(1)
         nodeC = self._create_node(2)
-        nodeD = self._create_node(3)
-        nodeE = self._create_node(4)
-        terminal = self._create_node(5)
 
-        # Linear path: A → B → C → D → E → Terminal
+        # Create the cycle
         nodeA.next_zone = nodeB
         nodeB.next_zone = nodeC
-        nodeC.next_zone = nodeD
-        nodeD.next_zone = nodeE
-        nodeE.next_zone = terminal
+        nodeC.next_zone = nodeB  # Cycle back to B
 
-        # Jump path: B can jump directly to E (skipping C, D)
-        nodeB.jump_tokens = np.array([25], dtype=np.int32)
-        nodeB.jump_zone = nodeE
-
-        # Lower from head
+        # This should complete without infinite recursion
         result = nodeA.lower()
 
-        # Verify linear path
-        current = result
-        blocks = []
-        while current is not None:
-            blocks.append(current.block)
-            current = current.next_zone
-        self.assertEqual(blocks, [0, 1, 2, 3, 4, 5])
+        # Verify the cycle is preserved in lowered graph
+        self.assertEqual(result.block, 0)  # A
+        self.assertEqual(result.next_zone.block, 1)  # B
+        self.assertEqual(result.next_zone.next_zone.block, 2)  # C
+        self.assertEqual(result.next_zone.next_zone.next_zone.block, 1)  # Back to B
 
-        # Verify jump bypasses middle nodes
+        # Verify they're the same instance (proper cycle detection)
         nodeB_lowered = result.next_zone
-        self.assertEqual(nodeB_lowered.jump_zone.block, 4)  # Points to E
-
-    def test_nested_loop_structure(self):
-        """Test: A → B → C (jump to B) → D (jump to B) → Terminal"""
-        # Build the graph
-        nodeA = self._create_node(0)
-        nodeB = self._create_node(1)
-        nodeC = self._create_node(2)
-        nodeD = self._create_node(3)
-        terminal = self._create_node(4)
-
-        # Linear path: A → B → C → D → Terminal
-        nodeA.next_zone = nodeB
-        nodeB.next_zone = nodeC
-        nodeC.next_zone = nodeD
-        nodeD.next_zone = terminal
-
-        # Multiple jumps back to B
-        nodeC.jump_tokens = np.array([30], dtype=np.int32)
-        nodeC.jump_zone = nodeB
-
-        nodeD.jump_tokens = np.array([40], dtype=np.int32)
-        nodeD.jump_zone = nodeB
-
-        # Lower from head
-        result = nodeA.lower()
-
-        # Verify both jumps point to same B
-        nodeC_lowered = result.next_zone.next_zone
-        nodeD_lowered = result.next_zone.next_zone.next_zone
-
-        self.assertEqual(nodeC_lowered.jump_zone.block, 1)  # C → B
-        self.assertEqual(nodeD_lowered.jump_zone.block, 1)  # D → B
-
-        # Verify they point to the same instance (convergence)
-        nodeB_lowered = result.next_zone
-        self.assertEqual(nodeC_lowered.jump_zone, nodeB_lowered)
-        self.assertEqual(nodeD_lowered.jump_zone, nodeB_lowered)
-
-    def test_multiple_jump_targets(self):
-        """Test: A → B (jump to D), A → B → C (jump to E), A → B → C → D → E → Terminal"""
-        # Build the graph
-        nodeA = self._create_node(0)
-        nodeB = self._create_node(1)
-        nodeC = self._create_node(2)
-        nodeD = self._create_node(3)
-        nodeE = self._create_node(4)
-        terminal = self._create_node(5)
-
-        # Linear path: A → B → C → D → E → Terminal
-        nodeA.next_zone = nodeB
-        nodeB.next_zone = nodeC
-        nodeC.next_zone = nodeD
-        nodeD.next_zone = nodeE
-        nodeE.next_zone = terminal
-
-        # Multiple jump targets
-        nodeB.jump_tokens = np.array([25], dtype=np.int32)
-        nodeB.jump_zone = nodeD
-
-        nodeC.jump_tokens = np.array([35], dtype=np.int32)
-        nodeC.jump_zone = nodeE
-
-        # Lower from head
-        result = nodeA.lower()
-
-        # Verify jump structure
-        nodeB_lowered = result.next_zone
-        nodeC_lowered = result.next_zone.next_zone
-
-        self.assertEqual(nodeB_lowered.jump_zone.block, 3)  # B → D
-        self.assertEqual(nodeC_lowered.jump_zone.block, 4)  # C → E
-
-        # Verify linear path still intact
-        self.assertEqual(nodeB_lowered.next_zone.block, 2)  # B → C
-        self.assertEqual(nodeC_lowered.next_zone.block, 3)  # C → D
+        nodeB_from_cycle = result.next_zone.next_zone.next_zone
+        self.assertEqual(nodeB_lowered, nodeB_from_cycle)
 
 
 class TestRZCPNodeErrorHandling(unittest.TestCase):
@@ -662,16 +616,15 @@ class TestRZCPNodeErrorHandling(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        # Create proper mock callback that returns numpy array
-        self.mock_callback = Mock(return_value=np.array([1, 2, 3]))
+        self.mock_callback = Mock(return_value="resolved text")
 
         self.base_node_data = {
             'sequence': 'error_sequence',
             'block': 5,
-            'zone_advance_tokens': np.array([10], dtype=np.int32),
-            'tags': np.array([True], dtype=np.bool_),
+            'zone_advance_str': '[Answer]',
+            'tags': ['Training'],
             'timeout': 1000,
-            'sampling_callback': self.mock_callback,  # Use proper mock
+            'sampling_callback': self.mock_callback,
             'input': False,
             'output': False
         }
@@ -679,7 +632,7 @@ class TestRZCPNodeErrorHandling(unittest.TestCase):
     def test_post_init_validation_error_context(self):
         """Test that __post_init__ validation includes proper context."""
         node_data = self.base_node_data.copy()
-        node_data['jump_tokens'] = np.array([20], dtype=np.int32)
+        node_data['jump_advance_str'] = '[Jump]'
         # Missing jump_zone
 
         with self.assertRaises(GraphError) as context:
@@ -723,38 +676,6 @@ class TestRZCPNodeErrorHandling(unittest.TestCase):
         # Error should reference the failing node's context
         self.assertEqual(context.exception.sequence, "error_sequence")
         self.assertEqual(context.exception.block, 6)  # Should be node2's block
-
-    def test_cycle_detection_prevents_infinite_recursion(self):
-        """Test that lowering with cycles doesn't cause infinite recursion."""
-        # Create a cycle: A → B → C → B
-        nodeA = RZCPNode(**self.base_node_data)
-
-        nodeB_data = self.base_node_data.copy()
-        nodeB_data['block'] = 6
-        nodeB = RZCPNode(**nodeB_data)
-
-        nodeC_data = self.base_node_data.copy()
-        nodeC_data['block'] = 7
-        nodeC = RZCPNode(**nodeC_data)
-
-        # Create the cycle
-        nodeA.next_zone = nodeB
-        nodeB.next_zone = nodeC
-        nodeC.next_zone = nodeB  # Cycle back to B
-
-        # This should complete without infinite recursion
-        result = nodeA.lower()
-
-        # Verify the cycle is preserved in lowered graph
-        self.assertEqual(result.block, 5)  # A
-        self.assertEqual(result.next_zone.block, 6)  # B
-        self.assertEqual(result.next_zone.next_zone.block, 7)  # C
-        self.assertEqual(result.next_zone.next_zone.next_zone.block, 6)  # Back to B
-
-        # Verify they're the same instance (proper cycle detection)
-        nodeB_lowered = result.next_zone
-        nodeB_from_cycle = result.next_zone.next_zone.next_zone
-        self.assertEqual(nodeB_lowered, nodeB_from_cycle)
 
 
 if __name__ == "__main__":

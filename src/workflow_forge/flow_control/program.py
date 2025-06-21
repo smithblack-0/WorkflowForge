@@ -6,13 +6,13 @@ Scope nodes upon running their exit routine should attach.
 import numpy as np
 import warnings
 import copy
-from typing import Dict, Tuple, Any, Optional, Callable, List, Type
+from typing import Dict, Tuple, Any, Optional, List, Type
 
 from src.workflow_forge.zcp.builder import GraphBuilderNode
 from ..parsing.config_parsing import Config
 from ..resources import AbstractResource
 from ..zcp.nodes import ZCPNode, RZCPNode
-from .tag_converter import TagConverter
+from src.workflow_forge.backend.tag_converter import TagConverter
 from ..tokenizer_interface import TokenizerInterface
 from .tools import Toolbox, Tool
 from dataclasses import dataclass

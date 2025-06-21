@@ -10,17 +10,12 @@ zcp supports Directed Cyclic IO Graphs (DCG-IO), which are directed graphs that:
 - Have exactly one source and one sink vertex
 - Guarantee all vertices are reachable from source and can reach sink
 - Maintain computational tractability for workflow analysis
-
-The module provides two levels of representation:
-1. zcp nodes - High-level with string references and sampling callbacks
-2. LZCP nodes - Lowered with actual tokens and tensor-ready data structures
 """
 import numpy as np
 import textwrap
-import functools
-from dataclasses import dataclass
-from typing import Optional, List, Callable, Dict, Any, Type
-from ..flow_control.tag_converter import TagConverter
+from dataclasses import dataclass, asdict
+from typing import Optional, List, Callable, Dict, Any, Tuple
+from src.workflow_forge.backend.tag_converter import TagConverter
 from ..tokenizer_interface import TokenizerInterface
 from ..resources import AbstractResource
 
@@ -81,14 +76,6 @@ class GraphError(Exception):
         self.sequence = sequence
         self.block = block
 
-## Setup the various aliases
-
-GraphLoweringErrorFactory = Callable[[str], GraphLoweringError]
-SamplerFactory = Callable[[], np.ndarray]
-SamplerFactoryFactory = Callable[[str, Dict[str, Dict[str, Any]],
-                                  GraphLoweringErrorFactory],
-                                 SamplerFactory]
-
 
 @dataclass
 class ZCPNode:
@@ -105,13 +92,13 @@ class ZCPNode:
         resource_specs: Placeholder → resource mapping (unresolved)
         raw_text: Template text with {placeholder} syntax
         zone_advance_str: String that triggers advancement to next zone
-        tags: String tags for extraction (or np.ndarray if converted)
+        tags: String tags for extraction
         timeout: Maximum tokens to generate before forcing advancement
         next_zone: Next zone in the linked list
     """
     sequence: str
     block: int
-    construction_callback: Callable[[Dict[str, AbstractResource]],str]
+    construction_callback: Callable[[Dict[str, AbstractResource]], str]
     resource_specs: Dict[str, Dict[str, Any]]
     raw_text: str
     zone_advance_str: str
@@ -127,48 +114,46 @@ class ZCPNode:
         return node
 
     def _make_sampling_factory(self,
-                               tokenizer: TokenizerInterface,
                                resources: Dict[str, AbstractResource]
-                               ):
+                               ) -> Callable[[], str]:
         """
-        Factory for making the main sampling factory, which invokes the
+        Factory for making the main sampling factory, which invokes the construction callback.
 
-        :param tokenizer:
-        :param resources:
-        :return:
+        Args:
+            resources: The resources dictionary
+
+        Returns:
+            A callback which runs a sampling call and returns a string.
         """
 
-        def sample()->np.ndarray:
+        def sample() -> str:
             """
             Main sampling function, draws from the resources, fills
-            in placeholders, gets text, tokenizes, returns an ndarray.
-            :return: The tokenized text
+            in placeholders, gets text, returns the resolved string.
+
+            Returns:
+                The resolved text string
             """
             try:
                 text = self.construction_callback(resources)
-                tokens = tokenizer.tokenize(text)
-                return np.array(tokens)
+                return text
             except Exception as err:
+                raise GraphLoweringError("Issue occurred while resolving resources",
+                                         self.block, self.sequence) from err
 
-                raise GraphLoweringError("Issue occurred while resolving resources or tokenizing texts",
-                                   self.block, self.sequence) from err
         return sample
 
     def _lower_node(self,
                     resources: Dict[str, AbstractResource],
-                    tokenizer: TokenizerInterface,
-                    tag_converter: TagConverter
                     ) -> 'RZCPNode':
         """
         Convert this zcp node to RZCP representation.
 
         Args:
-            callback_factory: Function that takes raw_text and resource_specs, returns construction callback
-            tokenizer: Function to convert strings to token arrays
-            tag_converter: Converts tag names to boolean arrays
+            resources: The resources dictionary
 
         Returns:
-            RZCPNode with resolved tokenization and construction callback
+            RZCPNode with callback for sampling text.
         """
         try:
             for placeholder, spec in self.resource_specs.items():
@@ -176,21 +161,19 @@ class ZCPNode:
                 if resource_name not in resources:
                     raise RuntimeError(f"Resource '{resource_name}' not found for placeholder '{placeholder}'")
 
-            sampling_callback = self._make_sampling_factory(tokenizer, resources)
-            zone_advance_tokens = np.array(tokenizer.tokenize(self.zone_advance_str))
-            tags_array = tag_converter.tensorize(self.tags)
+            sampling_callback = self._make_sampling_factory(resources)
 
             return RZCPNode(
-                sequence = self.sequence,
-                block = self.block,
-                zone_advance_tokens=zone_advance_tokens,
-                tags=tags_array,
+                sequence=self.sequence,
+                block=self.block,
+                zone_advance_str=self.zone_advance_str,
+                tags=self.tags,
                 timeout=self.timeout,
                 sampling_callback=sampling_callback,
                 input=False,
                 output=False,
                 next_zone=None,
-                jump_tokens=None,
+                jump_advance_str=None,
                 jump_zone=None
             )
         except Exception as err:
@@ -199,8 +182,6 @@ class ZCPNode:
 
     def lower(self,
               resources: Dict[str, AbstractResource],
-              tokenizer: TokenizerInterface,
-              tag_converter: TagConverter,
               ) -> 'RZCPNode':
         """
         Walk through entire graph and lower all nodes to RZCP, maintaining linkage.
@@ -208,15 +189,13 @@ class ZCPNode:
 
         Args:
             resources: The resolved resources that can now be used to lower this further.
-            tokenizer: Function to convert strings to token arrays
-            tag_converter: Converts tag names to boolean arrays
 
         Returns:
             Head of the lowered RZCP graph
         """
-        lowered_self = self._lower_node(resources, tokenizer, tag_converter)
+        lowered_self = self._lower_node(resources)
         if self.next_zone is not None:
-            next_lowered = self.next_zone.lower(resources, tokenizer, tag_converter)
+            next_lowered = self.next_zone.lower(resources)
             lowered_self.next_zone = next_lowered
         return lowered_self
 
@@ -226,54 +205,54 @@ class ZCPNode:
     def __eq__(self, other):
         return self is other
 
+
 @dataclass
 class RZCPNode:
     """
     Resolved Zone Control Protocol node from SFCS construction.
 
-    Has resolved resources and flow control markers. Designed for sampling -
-    can walk through itself and lower to equivalent LZCP sequence when invoked.
-    Sampling is performed by invoking the construction callback,
-    and which will then tokenize and return the results. This happens once
-    at the start of the batch, and is then applied in many locations.
+    Has resolved resources and flow control markers. Contains sampling callbacks
+    that return resolved text strings (not tokenized). This stage comes after
+    resource resolution but before tokenization in the pipeline.
 
     Attributes:
         sequence: String sequence, used only for error reporting
         block: Block number within the sequence. Only for error reporting.
-        zone_advance_tokens: Token List ID that triggers advancement to next zone
-        tags: Boolean array indicating which tags apply to this zone
+        zone_advance_str: String that triggers advancement to next zone
+        jump_advance_str: Optional string that triggers jump flow control
+        tags: List of string tags that apply to this zone
         timeout: Maximum tokens to generate before forcing advancement
-        sampling_callback: Function that returns tokenized prompt (no params, everything resolved)
+        sampling_callback: Function that returns resolved text string (no tokenization)
         input: If True, zone feeds from input buffer when prompt tokens exhausted
         output: If True, zone content is captured for extraction
+        tool_name: Optional tool name for tool integration (serializable reference)
         next_zone: Next zone in the execution chain
-        jump_tokens: Optional token ID List that triggers jump flow control
         jump_zone: Optional target node for jump flow control
     """
     sequence: str
     block: int
-    zone_advance_tokens: np.ndarray
-    tags: np.ndarray
+    zone_advance_str: str
+    tags: List[str]
     timeout: int
-    sampling_callback: Callable[[], np.ndarray]
+    sampling_callback: Callable[[], str]
     input: bool = False
     output: bool = False
-    jump_tokens: Optional[np.ndarray] = None
+    jump_advance_str: Optional[str] = None
+    tool_name: Optional[str] = None
     next_zone: Optional['RZCPNode'] = None
     jump_zone: Optional['RZCPNode'] = None
-    tool_callback: Optional[Callable[[np.ndarray], np.ndarray]] = None
 
     def __post_init__(self):
         """Validate node consistency after initialization."""
-        # Jump token and jump node must be both present or both absent
-        if (self.jump_tokens is None) != (self.jump_zone is None):
-            raise GraphError("jump_token and jump_node must both be present or both be None",
+        # Jump advance string and jump zone must be both present or both absent
+        if (self.jump_advance_str is None) != (self.jump_zone is None):
+            raise GraphError("jump_advance_str and jump_zone must both be present or both be None",
                              sequence=self.sequence,
                              block=self.block)
 
     def has_jump(self) -> bool:
         """Check if this node supports jump flow control."""
-        return self.jump_tokens is not None and self.jump_zone is not None
+        return self.jump_advance_str is not None and self.jump_zone is not None
 
     def is_terminal(self) -> bool:
         """Check if this is a terminal node (sink in the DCG-IO)."""
@@ -287,6 +266,10 @@ class RZCPNode:
         """Check if this zone's content should be captured."""
         return self.output
 
+    def has_tool(self) -> bool:
+        """Check if this zone has an associated tool."""
+        return self.tool_name is not None
+
     def get_last_node(self) -> 'RZCPNode':
         """
         Get the last node of the chain by following the linked list structure.
@@ -299,68 +282,79 @@ class RZCPNode:
             node = node.next_zone
         return node
 
-    def _lower_node(self) -> 'LZCPNode':
+    def _lower_node(self) -> Tuple['SZCPNode', Optional[str]]:
         """
-        Convert this RZCP node to LZCP representation.
+        Convert this RZCP node to SZCP representation.
 
-        Since all tokenization and resolution is already done,
-        this is mostly just copying data over.
+        Executes the sampling callback to resolve all placeholders to final text,
+        creating a fully serializable node ready for network transmission.
 
         Returns:
-            LZCPNode with pre-resolved tokens and data
+            SZCPNode with fully resolved text content
         """
-        # Get the pre-tokenized prompt
         try:
-            tokens = self.sampling_callback()
+            # Execute sampling callback to get resolved text
+            resolved_text = self.sampling_callback()
 
-            return LZCPNode(
+            node = SZCPNode(
                 sequence=self.sequence,
                 block=self.block,
-                tokens=tokens,
-                zone_advance_tokens=self.zone_advance_tokens,
+                text=resolved_text,
+                zone_advance_str=self.zone_advance_str,
                 tags=self.tags,
                 timeout=self.timeout,
                 input=self.input,
                 output=self.output,
-                next_zone=None,  # Will be wired later
-                jump_tokens=None,
-                jump_zone=None,
-                tool_callback = self.tool_callback
+                jump_advance_str=None,
+                tool_name=self.tool_name,
+                next_zone=None,
+                jump_zone=None
             )
+
+            return node, self.jump_advance_str
         except Exception as err:
-            raise GraphLoweringError("Failed to lower RZCP to LZCP",
+            raise GraphLoweringError("Failed to lower RZCP to SZCP",
                                      sequence=self.sequence, block=self.block) from err
 
     def lower(self,
-            lowered_map: Optional[Dict['RZCPNode', 'LZCPNode']] = None
-            ) -> 'LZCPNode':
+              lowered_map: Optional[Dict['RZCPNode', 'SZCPNode']] = None
+              ) -> 'SZCPNode':
         """
-        Walk through entire graph and lower all nodes to LZCP, maintaining linkage.
+        Walk through entire graph and lower all nodes to SZCP, maintaining linkage.
         Handles cycles and complex flow control graphs correctly.
 
+        Args:
+            lowered_map: Optional mapping to handle cycles during graph traversal
+
         Returns:
-            Head of the lowered LZCP graph
+            Head of the lowered SZCP graph
         """
         if lowered_map is None:
             lowered_map = {}
         if self in lowered_map:
             return lowered_map[self]
 
-        lowered_self = self._lower_node()
+        lowered_self, jump_advance_str = self._lower_node()
         lowered_map[self] = lowered_self
+
         if self.next_zone is not None:
             lowered_self.next_zone = self.next_zone.lower(lowered_map)
         if self.jump_zone is not None:
             lowered_self.jump_zone = self.jump_zone.lower(lowered_map)
-            lowered_self.jump_tokens = self.jump_tokens
+            lowered_self.jump_advance_str = jump_advance_str
+
         return lowered_self
 
-    def attach(self, sources: List['RZCPNode'])->'RZCPNode':
+    def attach(self, sources: List['RZCPNode']) -> 'RZCPNode':
         """
         Attaches other RZCP nodes so their nominal advancement
         stages point at myself.
-        :param sources: The sources to attach to me
-        :return: Myself
+
+        Args:
+            sources: The sources to attach to me
+
+        Returns:
+            Myself for method chaining
         """
         for source in sources:
             source.next_zone = self
@@ -371,6 +365,346 @@ class RZCPNode:
 
     def __eq__(self, other):
         return self is other
+
+
+@dataclass
+class SZCPNode:
+    """
+    Serializable Zone Control Protocol node with fully resolved content.
+
+    Represents a zone where all placeholders have been resolved to final text,
+    but tokenization has not yet occurred. This is the serialization boundary
+    in the compilation pipeline - SZCP nodes can be serialized and sent over
+    the network to backend execution engines.
+
+    Key characteristics:
+    - All resource placeholders resolved to actual text
+    - Tool callbacks referenced by name (serializable)
+    - Zone advance triggers still as strings (not tokenized)
+    - Tags remain as string lists (not boolean arrays)
+    - Graph structure preserved with proper references
+    - Supports full DCG-IO flow control including jumps
+
+    Attributes:
+        sequence: Name of UDPL sequence this zone belongs to
+        block: Block number within the sequence
+        text: Fully resolved text with all placeholders filled in
+        zone_advance_str: String that triggers advancement to next zone
+        tags: String tags for selective extraction
+        timeout: Maximum tokens to generate before forcing advancement
+        input: If True, zone feeds from input buffer when prompt tokens exhausted
+        output: If True, zone content is captured for extraction
+        next_zone: Next zone in the execution chain
+        jump_advance_str: Optional string that triggers jump flow control
+        jump_zone: Optional target node for jump flow control
+        tool_name: Optional tool name for tool integration (serializable reference)
+    """
+    sequence: str
+    block: int
+    text: str
+    zone_advance_str: str
+    tags: List[str]
+    timeout: int
+    input: bool
+    output: bool
+    next_zone: Optional['SZCPNode'] = None
+    jump_advance_str: Optional[str] = None
+    jump_zone: Optional['SZCPNode'] = None
+    tool_name: Optional[str] = None
+
+    def __post_init__(self):
+        """Validate node consistency after initialization."""
+        # Jump advance string and jump zone must be both present or both absent
+        if (self.jump_advance_str is None) != (self.jump_zone is None):
+            raise GraphError("jump_advance_str and jump_zone must both be present or both be None",
+                             sequence=self.sequence,
+                             block=self.block)
+
+    def has_jump(self) -> bool:
+        """Check if this node supports jump flow control."""
+        return self.jump_advance_str is not None and self.jump_zone is not None
+
+    def is_terminal(self) -> bool:
+        """Check if this is a terminal node (sink in the DCG-IO)."""
+        return self.next_zone is None and not self.has_jump()
+
+    def is_input_zone(self) -> bool:
+        """Check if this zone feeds from input buffer."""
+        return self.input
+
+    def is_output_zone(self) -> bool:
+        """Check if this zone's content should be captured."""
+        return self.output
+
+    def has_tool(self) -> bool:
+        """Check if this zone has an associated tool."""
+        return self.tool_name is not None
+
+    def get_last_node(self) -> 'SZCPNode':
+        """
+        Get the last node of the chain by following the linked list structure.
+
+        Returns:
+            The last node in the next_zone chain
+        """
+        node = self
+        while node.next_zone is not None:
+            node = node.next_zone
+        return node
+
+    def _lower_node(self,
+                    tokenizer: TokenizerInterface,
+                    tag_converter: TagConverter,
+                    tool_registry: Dict[str, Callable[[np.ndarray], np.ndarray]]
+                    )->Tuple['LZCPNode', np.ndarray]:
+        """
+        Utility responsible for lowing this particular node, but
+        not responsible for linking up flow control in general
+        :param tokenizer: The tokenizer to use to convert strings to tokens
+        :param tag_converter: The tag converter to convert the tags to their boolean arrays
+        :param tool_registry: The tool registry to convert tools to their callbacks
+        :return:
+        - The LZCPNode, with no attachments
+        - The jump tokens, if they exist.
+        """
+        try:
+
+            # Basic tokenization
+            tokens = np.array(tokenizer.tokenize(self.text))
+            zone_advance_tokens = np.array(tokenizer.tokenize(self.zone_advance_str))
+
+            # Jump advance tokenization
+            if self.jump_advance_str is not None:
+                jump_tokens = np.array(tokenizer.tokenize(self.jump_advance_str))
+            else:
+                jump_tokens = None
+
+            # Tool resolution
+            if self.has_tool():
+                if self.tool_name not in tool_registry:
+                    raise RuntimeError(f"Tool {self.tool_name} not found in available tools")
+                tool = tool_registry[self.tool_name]
+            else:
+                tool = None
+
+            tags = tag_converter.tensorize(self.tags)
+
+            node = LZCPNode(
+                sequence= self.sequence,
+                block = self.block,
+                tokens = tokens,
+                zone_advance_tokens = zone_advance_tokens,
+                tags = tags,
+                timeout = self.timeout,
+                input = self.input,
+                output = self.output,
+                tool_callback=tool,
+
+            )
+
+            return node, jump_tokens
+        except Exception as err:
+            raise GraphLoweringError("Could not lower SZCP to LZCP", self.block, self.sequence) from err
+
+    def lower(self,
+            tokenizer: TokenizerInterface,
+            tag_converter: TagConverter,
+            tool_registry: Dict[str, Callable[[np.ndarray], np.ndarray]],
+            lowered_map: Optional[Dict['SZCPNode', 'LZCPNode']] = None
+            ) -> 'LZCPNode':
+        """
+        Walk through entire graph and lower all nodes to LZCP, maintaining linkage.
+        Handles cycles and complex flow control graphs correctly.
+
+        Args:
+            tokenizer: Function to convert strings to token arrays
+            tag_converter: Converts tag names to boolean arrays
+            tool_registry: Maps tool names to actual callback functions
+
+        Returns:
+            LZCPNode with tokenized content and resolved tool callbacks
+
+        Raises:
+            GraphLoweringError: If tokenization fails or tool not found in registry
+        """
+        if lowered_map is None:
+            lowered_map = {}
+        if self in lowered_map:
+            return lowered_map[self]
+
+        lowered_self, jump_tokens = self._lower_node(tokenizer, tag_converter, tool_registry)
+        lowered_map[self] = lowered_self
+        if self.next_zone is not None:
+            lowered_self.next_zone = self.next_zone.lower(tokenizer, tag_converter, tool_registry, lowered_map)
+        if self.jump_zone is not None:
+            lowered_self.jump_zone = self.jump_zone.lower(tokenizer, tag_converter, tool_registry, lowered_map)
+            lowered_self.jump_tokens = jump_tokens
+        return lowered_self
+
+    def serialize(self) -> Dict[int, Dict[str, Dict[str, Any]]]:
+        """
+        Serialize this SZCP graph to a dictionary representation for network transmission.
+
+        Performs a complete traversal of the DCG-IO graph starting from this node,
+        discovers all reachable nodes, and converts object references to integer indices
+        to create a serializable format suitable for client/server communication.
+
+        Returns:
+            Dict[int, Dict[str, Dict[str, Any]]] Dictionary mapping node indices to serialized node data.
+            Index 0 represents this root node. Node references (next_zone, jump_zone) are
+            converted to integer indices ("next_zone_index", "jump_zone_index").
+            None references become None values in the serialized format.
+        """
+        # Phase 1: Discover all reachable nodes and assign indices
+        nodes = self._discover_all_nodes()
+
+        # Phase 2: Serialize each node's data
+        serialized_nodes = {}
+        for node, index in nodes.items():
+            serialized_nodes[index] = node._serialize_node(nodes)
+
+        return serialized_nodes
+
+    def _discover_all_nodes(self, visited: Optional[Dict['SZCPNode', int]] = None) -> Dict['SZCPNode', int]:
+        """
+        Phase 1: Walk the entire graph and assign a unique index to each node.
+
+        Uses depth-first traversal with cycle detection. Returns a complete
+        mapping of all reachable nodes to their assigned indices.
+
+        Args:
+            visited: Internal parameter for recursion, tracks already-discovered nodes
+
+        Returns:
+            Dict mapping each discovered node to its unique index (starting from 0)
+        """
+        if visited is None:
+            visited = {}
+
+        if self in visited:
+            return visited
+
+        visited[self] = len(visited)
+
+        if self.next_zone is not None:
+            self.next_zone._discover_all_nodes(visited)
+        if self.jump_zone is not None:
+            self.jump_zone._discover_all_nodes(visited)
+
+        return visited
+    def _serialize_node(self, nodes: Dict['SZCPNode', int]) -> Dict[str, Dict[str, Any]]:
+        """
+        Serialize this node's data, replacing object references with indices.
+
+        Args:
+            nodes: Mapping from nodes to their assigned indices
+
+        Returns:
+            Dictionary representation of this node with index-based references
+        """
+        internal_data = {
+            "sequence": self.sequence,
+            "block": self.block,
+            "text": self.text,
+            "zone_advance_str": self.zone_advance_str,
+            "tags": self.tags,
+            "timeout": self.timeout,
+            "input": self.input,
+            "output": self.output,
+            "jump_advance_str": self.jump_advance_str,
+        }
+        links = {
+            "next_zone_index": nodes.get(self.next_zone),
+            "jump_zone_index": nodes.get(self.jump_zone),
+        }
+        representation = {"data" : internal_data, "links" : links}
+        return representation
+
+    @classmethod
+    def deserialize(cls, data: Dict[int, Dict[str, Dict[str, Any]]]) -> 'SZCPNode':
+        """
+        Deserialize a dictionary representation back to an SZCP graph.
+
+        Reconstructs the full DCG-IO graph structure from serialized data,
+        properly restoring all node references including next_zone and jump_zone
+        relationships.
+
+        Args:
+            data: Dictionary mapping node indices to {"data": {...}, "links": {...}}
+                  format. Index 0 represents the root node of the graph.
+
+        Returns:
+            Root SZCPNode of the reconstructed graph
+
+        Raises:
+            KeyError: If index 0 does not exist or if link indices reference non-existent nodes
+            TypeError: If data structure does not match expected format
+        """
+        nodes, links = cls._create_unlinked_nodes(data)
+        cls._resolve_references(nodes, links)
+        return nodes[0]
+
+    @classmethod
+    def _create_unlinked_nodes(cls, data: Dict[int, Dict[str, Dict[str, Any]]]) -> Tuple[
+        Dict[int, 'SZCPNode'], Dict[int, Dict[str, Any]]]:
+        """
+        Create SZCPNode objects from serialized data and extract link information.
+
+        Constructs all nodes with their basic data using **kwargs from the "data" section,
+        while extracting link information for later reference resolution.
+
+        Args:
+            data: Serialized graph data with "data" and "links" sections per node
+
+        Returns:
+            Tuple of:
+            - Dict mapping indices to created SZCPNode objects (with None references)
+            - Dict mapping indices to link data for reference resolution
+
+        Raises:
+            TypeError: If node data is missing required fields or has wrong types
+        """
+        nodes = {}
+        links = {}
+
+        for index, node_data in data.items():
+            nodes[index] = cls(**node_data["data"])
+            links[index] = node_data["links"]
+
+        return nodes, links
+
+    @classmethod
+    def _resolve_references(cls,
+                            nodes: Dict[int, 'SZCPNode'],
+                            links: Dict[int, Dict[str, Any]]
+                            ) -> None:
+        """
+        Wire up next_zone and jump_zone references using extracted link data.
+        It will, by looking up nodes, be able to resolve the links data onto
+        each given node.
+
+        Args:
+            nodes: Dictionary of created SZCPNode objects indexed by their position
+            links: Dictionary of link data containing next_zone_index and jump_zone_index
+
+        Raises:
+            KeyError: If link indices reference nodes that don't exist in the nodes dict
+        """
+        for index, link_data in links.items():
+            node = nodes[index]
+
+            if link_data["next_zone_index"] is not None:
+                node.next_zone = nodes[link_data["next_zone_index"]]
+
+            if link_data["jump_zone_index"] is not None:
+                node.jump_zone = nodes[link_data["jump_zone_index"]]
+    def __hash__(self):
+        return id(self)
+
+    def __eq__(self, other):
+        return self is other
+
+
 
 @dataclass
 class LZCPNode:

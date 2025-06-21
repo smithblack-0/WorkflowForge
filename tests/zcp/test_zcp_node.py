@@ -10,15 +10,11 @@ Tests cover:
 """
 
 import unittest
-import numpy as np
-from unittest.mock import Mock, MagicMock
-from typing import Dict, Any
+from unittest.mock import Mock
 
 # Import the modules under test
 from src.workflow_forge.zcp.nodes import ZCPNode, RZCPNode, GraphLoweringError
 from src.workflow_forge.resources import AbstractResource
-from src.workflow_forge.tokenizer_interface import TokenizerInterface
-from src.workflow_forge.flow_control.tag_converter import TagConverter
 
 
 class TestZCPNodeConstruction(unittest.TestCase):
@@ -207,10 +203,6 @@ class TestZCPNodeResourceResolution(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        # Create mock dependencies
-        self.mock_tokenizer = Mock(spec=TokenizerInterface)
-        self.mock_tokenizer.tokenize = Mock(return_value=np.array([1, 2, 3]))
-
         self.mock_construction_callback = Mock()
         self.mock_construction_callback.return_value = "resolved text"
 
@@ -237,7 +229,7 @@ class TestZCPNodeResourceResolution(unittest.TestCase):
         resources = {'test_resource': self.mock_resource}
 
         # Create sampling factory
-        sampling_fn = node._make_sampling_factory(self.mock_tokenizer, resources)
+        sampling_fn = node._make_sampling_factory(resources)
 
         # Call the sampling function
         result = sampling_fn()
@@ -245,11 +237,8 @@ class TestZCPNodeResourceResolution(unittest.TestCase):
         # Verify construction callback was called with resources
         self.mock_construction_callback.assert_called_once_with(resources)
 
-        # Verify tokenizer was called with callback result
-        self.mock_tokenizer.tokenize.assert_called_once_with("resolved text")
-
         # Verify final result
-        np.testing.assert_array_equal(result, np.array([1, 2, 3]))
+        self.assertEqual(result, "resolved text")
 
     def test_make_sampling_factory_construction_callback_failure(self):
         """Test _make_sampling_factory when construction callback fails."""
@@ -258,7 +247,7 @@ class TestZCPNodeResourceResolution(unittest.TestCase):
         node = ZCPNode(**self.node_data)
         resources = {'test_resource': self.mock_resource}
 
-        sampling_fn = node._make_sampling_factory(self.mock_tokenizer, resources)
+        sampling_fn = node._make_sampling_factory(resources)
 
         # Should raise GraphLoweringError with chained exception
         with self.assertRaises(GraphLoweringError) as context:
@@ -268,41 +257,23 @@ class TestZCPNodeResourceResolution(unittest.TestCase):
         self.assertEqual(context.exception.block, 0)
         self.assertIsInstance(context.exception.__cause__, ValueError)
 
-    def test_make_sampling_factory_tokenization_failure(self):
-        """Test _make_sampling_factory when tokenization fails."""
-        self.mock_tokenizer.tokenize = Mock(side_effect=RuntimeError("Tokenization failed"))
-
-        node = ZCPNode(**self.node_data)
-        resources = {'test_resource': self.mock_resource}
-
-        sampling_fn = node._make_sampling_factory(self.mock_tokenizer, resources)
-
-        # Should raise GraphLoweringError with chained exception
-        with self.assertRaises(GraphLoweringError) as context:
-            sampling_fn()
-
-        self.assertEqual(context.exception.sequence, "test_sequence")
-        self.assertEqual(context.exception.block, 0)
-        self.assertIsInstance(context.exception.__cause__, RuntimeError)
-
     def test_sampling_factory_multiple_calls(self):
         """Test that sampling factory can be called multiple times."""
         node = ZCPNode(**self.node_data)
         resources = {'test_resource': self.mock_resource}
 
-        sampling_fn = node._make_sampling_factory(self.mock_tokenizer, resources)
+        sampling_fn = node._make_sampling_factory(resources)
 
         # Call multiple times
         result1 = sampling_fn()
         result2 = sampling_fn()
 
         # Should work both times
-        np.testing.assert_array_equal(result1, np.array([1, 2, 3]))
-        np.testing.assert_array_equal(result2, np.array([1, 2, 3]))
+        self.assertEqual(result1, "resolved text")
+        self.assertEqual(result2, "resolved text")
 
         # Verify callbacks were called each time
         self.assertEqual(self.mock_construction_callback.call_count, 2)
-        self.assertEqual(self.mock_tokenizer.tokenize.call_count, 2)
 
 
 class TestZCPNodeLowering(unittest.TestCase):
@@ -310,13 +281,6 @@ class TestZCPNodeLowering(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        # Create mock dependencies
-        self.mock_tokenizer = Mock(spec=TokenizerInterface)
-        self.mock_tokenizer.tokenize = Mock(return_value=np.array([1, 2, 3]))
-
-        self.mock_tag_converter = Mock(spec=TagConverter)
-        self.mock_tag_converter.tensorize = Mock(return_value=np.array([True, False]))
-
         self.mock_construction_callback = Mock()
         self.mock_construction_callback.return_value = "resolved text"
 
@@ -343,7 +307,7 @@ class TestZCPNodeLowering(unittest.TestCase):
         """Test _lower_node creates valid RZCPNode."""
         node = ZCPNode(**self.node_data)
 
-        result = node._lower_node(self.resources, self.mock_tokenizer, self.mock_tag_converter)
+        result = node._lower_node(self.resources)
 
         # Verify result type and basic properties
         self.assertIsInstance(result, RZCPNode)
@@ -356,22 +320,16 @@ class TestZCPNodeLowering(unittest.TestCase):
         self.assertIsNone(result.jump_tokens)
         self.assertIsNone(result.jump_zone)
 
-        # Verify zone advance tokens
-        np.testing.assert_array_equal(result.zone_advance_tokens, np.array([1, 2, 3]))
+        # Verify zone advance string
+        self.assertEqual(result.zone_advance_str, '[Answer]')
 
-        # Verify tags conversion
-        np.testing.assert_array_equal(result.tags, np.array([True, False]))
+        # Verify tags as string list
+        self.assertEqual(result.tags, ['Training'])
 
         # Verify sampling callback exists and works
         self.assertTrue(callable(result.sampling_callback))
-        tokens = result.sampling_callback()
-        np.testing.assert_array_equal(tokens, np.array([1, 2, 3]))
-
-        # Verify tokenizer was called for zone advance string
-        self.mock_tokenizer.tokenize.assert_any_call('[Answer]')
-
-        # Verify tag converter was called
-        self.mock_tag_converter.tensorize.assert_called_once_with(['Training'])
+        text = result.sampling_callback()
+        self.assertEqual(text, "resolved text")
 
     def test_lower_node_missing_resource(self):
         """Test _lower_node fails when required resource is missing."""
@@ -379,7 +337,7 @@ class TestZCPNodeLowering(unittest.TestCase):
         empty_resources = {}
 
         with self.assertRaises(GraphLoweringError) as context:
-            node._lower_node(empty_resources, self.mock_tokenizer, self.mock_tag_converter)
+            node._lower_node(empty_resources)
 
         self.assertEqual(context.exception.sequence, "test_sequence")
         self.assertEqual(context.exception.block, 0)
@@ -388,7 +346,7 @@ class TestZCPNodeLowering(unittest.TestCase):
         """Test lower() method with single node."""
         node = ZCPNode(**self.node_data)
 
-        result = node.lower(self.resources, self.mock_tokenizer, self.mock_tag_converter)
+        result = node.lower(self.resources)
 
         # Should return RZCPNode
         self.assertIsInstance(result, RZCPNode)
@@ -409,7 +367,7 @@ class TestZCPNodeLowering(unittest.TestCase):
         node1.next_zone = node2
 
         # Lower the chain
-        result_head = node1.lower(self.resources, self.mock_tokenizer, self.mock_tag_converter)
+        result_head = node1.lower(self.resources)
 
         # Verify chain structure is preserved
         self.assertIsInstance(result_head, RZCPNode)
@@ -432,7 +390,7 @@ class TestZCPNodeLowering(unittest.TestCase):
         node1.next_zone = node2
 
         # Lower the chain
-        result_head = node1.lower(self.resources, self.mock_tokenizer, self.mock_tag_converter)
+        result_head = node1.lower(self.resources)
 
         # Verify original ZCP nodes are unchanged
         self.assertIsInstance(node1, ZCPNode)
@@ -452,12 +410,6 @@ class TestZCPNodeErrorHandling(unittest.TestCase):
         self.mock_construction_callback = Mock()
         self.mock_construction_callback.return_value = "resolved text"
 
-        self.mock_tokenizer = Mock(spec=TokenizerInterface)
-        self.mock_tokenizer.tokenize = Mock(return_value=np.array([1, 2, 3]))
-
-        self.mock_tag_converter = Mock(spec=TagConverter)
-        self.mock_tag_converter.tensorize = Mock(return_value=np.array([True, False]))
-
         self.node_data = {
             'sequence': 'error_sequence',
             'block': 5,
@@ -469,39 +421,25 @@ class TestZCPNodeErrorHandling(unittest.TestCase):
             'timeout': 1000
         }
 
-    def test_graph_lowering_error_context(self):
-        """Test that GraphLoweringError includes proper context."""
-        self.mock_tokenizer.tokenize = Mock(side_effect=RuntimeError("Tokenizer exploded"))
-
-        node = ZCPNode(**self.node_data)
-
-        with self.assertRaises(GraphLoweringError) as context:
-            node._lower_node({}, self.mock_tokenizer, self.mock_tag_converter)
-
-        # Verify error context without brittle message matching
-        self.assertEqual(context.exception.sequence, "error_sequence")
-        self.assertEqual(context.exception.block, 5)
-
     def test_exception_chaining_preserved(self):
         """Test that original exceptions are preserved in the chain."""
         original_error = ValueError("Original problem")
-        self.mock_tag_converter.tensorize = Mock(side_effect=original_error)
+        self.mock_construction_callback.side_effect = original_error
 
         node = ZCPNode(**self.node_data)
 
         with self.assertRaises(GraphLoweringError) as context:
-            node._lower_node({}, self.mock_tokenizer, self.mock_tag_converter)
+            node._lower_node({})
 
         # Check that original exception is chained
-        self.assertIsInstance(context.exception.__cause__, ValueError)
-        self.assertIn("Original problem", str(context.exception.__cause__))
+        self.assertIsInstance(context.exception.__cause__, RuntimeError)
 
     def test_sampling_factory_error_context(self):
         """Test error context in sampling factory."""
         self.mock_construction_callback.side_effect = RuntimeError("Construction failed")
 
         node = ZCPNode(**self.node_data)
-        sampling_fn = node._make_sampling_factory(self.mock_tokenizer, {})
+        sampling_fn = node._make_sampling_factory({})
 
         with self.assertRaises(GraphLoweringError) as context:
             sampling_fn()
@@ -513,12 +451,14 @@ class TestZCPNodeErrorHandling(unittest.TestCase):
 
     def test_lower_propagates_node_errors(self):
         """Test that lower() propagates errors from _lower_node."""
-        self.mock_tokenizer.tokenize = Mock(side_effect=RuntimeError("Tokenization failed"))
+        # Create a node with a resource that doesn't exist
+        node_data = self.node_data.copy()
+        node_data['resource_specs'] = {'missing': {'name': 'missing_resource', 'arguments': None, 'type': 'default'}}
 
-        node = ZCPNode(**self.node_data)
+        node = ZCPNode(**node_data)
 
         with self.assertRaises(GraphLoweringError) as context:
-            node.lower({}, self.mock_tokenizer, self.mock_tag_converter)
+            node.lower({})
 
         # Should be the same error that _lower_node would raise
         self.assertEqual(context.exception.sequence, "error_sequence")
@@ -531,18 +471,13 @@ class TestZCPNodeErrorHandling(unittest.TestCase):
 
         node2_data = self.node_data.copy()
         node2_data['block'] = 6
+        node2_data['resource_specs'] = {'missing': {'name': 'missing_resource', 'arguments': None, 'type': 'default'}}
         node2 = ZCPNode(**node2_data)
 
         node1.next_zone = node2
 
-        # Make tokenizer fail only on second call (for node2)
-        self.mock_tokenizer.tokenize = Mock(side_effect=[
-            np.array([1, 2, 3]),  # Success for node1
-            RuntimeError("Failed on node2")  # Failure for node2
-        ])
-
         with self.assertRaises(GraphLoweringError) as context:
-            node1.lower({}, self.mock_tokenizer, self.mock_tag_converter)
+            node1.lower({})
 
         # Error should reference the failing node's context
         self.assertEqual(context.exception.sequence, "error_sequence")
