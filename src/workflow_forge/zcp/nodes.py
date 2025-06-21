@@ -412,14 +412,6 @@ class SZCPNode:
     jump_zone: Optional['SZCPNode'] = None
     tool_name: Optional[str] = None
 
-    def __post_init__(self):
-        """Validate node consistency after initialization."""
-        # Jump advance string and jump zone must be both present or both absent
-        if (self.jump_advance_str is None) != (self.jump_zone is None):
-            raise GraphError("jump_advance_str and jump_zone must both be present or both be None",
-                             sequence=self.sequence,
-                             block=self.block)
-
     def has_jump(self) -> bool:
         """Check if this node supports jump flow control."""
         return self.jump_advance_str is not None and self.jump_zone is not None
@@ -612,6 +604,7 @@ class SZCPNode:
             "input": self.input,
             "output": self.output,
             "jump_advance_str": self.jump_advance_str,
+            "tool_name" : self.tool_name,
         }
         links = {
             "next_zone_index": nodes.get(self.next_zone),
