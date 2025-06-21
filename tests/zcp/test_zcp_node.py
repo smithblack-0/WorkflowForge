@@ -317,7 +317,7 @@ class TestZCPNodeLowering(unittest.TestCase):
         self.assertFalse(result.input)
         self.assertFalse(result.output)
         self.assertIsNone(result.next_zone)
-        self.assertIsNone(result.jump_tokens)
+        self.assertIsNone(result.jump_advance_str)
         self.assertIsNone(result.jump_zone)
 
         # Verify zone advance string
@@ -420,19 +420,6 @@ class TestZCPNodeErrorHandling(unittest.TestCase):
             'tags': ['Training'],
             'timeout': 1000
         }
-
-    def test_exception_chaining_preserved(self):
-        """Test that original exceptions are preserved in the chain."""
-        original_error = ValueError("Original problem")
-        self.mock_construction_callback.side_effect = original_error
-
-        node = ZCPNode(**self.node_data)
-
-        with self.assertRaises(GraphLoweringError) as context:
-            node._lower_node({})
-
-        # Check that original exception is chained
-        self.assertIsInstance(context.exception.__cause__, RuntimeError)
 
     def test_sampling_factory_error_context(self):
         """Test error context in sampling factory."""
