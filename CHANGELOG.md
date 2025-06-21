@@ -6,12 +6,21 @@ All notable changes to Workflow Forge will be documented in this file.
 
 *Note: This is an early development release. SFCS flow control and TTFA execution engine are still in development. Backend engine is not yet functional. Language is still vulnerable to change, and backwards compatibility not yet guaranteed*
 
-## [0.1.3] 2025-06-20
+## [0.1.4]
+
+6-21-2025
+
+- Documentation modifications, and added a much clearer technical status tracker
+- Adopting serialization mechanism into ZCP nodes... finished. Unit testing... finished.
+
+
+## [0.1.3] 
+
+2025-06-20
 
 - I can see a clear way to serialize the workflow, and then deserialize it later. Making it work means a few tweaks in the tool-using system, but is probably worth the trouble.
 - I think I will go ahead and implement the changes. There will be an extra SZCP stage, and a workflow factory mechanism that does the actual resource sampling to produce a workflow. Resources stay on the client. The workflow's themselves are what can be serialized and sent to the other backend system.
 - Went through with the pivot. We are going to have a server/client system. I believe this is as wide as the scope is ever going to get for the initial release.
-- 
 
 
 ## [0.1.2] 2025-06-19

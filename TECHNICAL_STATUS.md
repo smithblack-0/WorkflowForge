@@ -28,7 +28,7 @@ When something has all green checkmarks, it is completely done to initial releas
 ## Status
 
 | Component                      |Architecture|Programming|Tested|Integrated|Integration Testing|
-|--------------------------------|--|--|--|---|-|
+|--------------------------------|--|--|--|--|-|
 | State machine PoC              |✅|✅|✅|✅|✅
 | UDPL                           |✅|✅|✅|🚧|❌|
 | Resources                      |✅|🚧|🚧|❌|❌|
@@ -36,7 +36,9 @@ When something has all green checkmarks, it is completely done to initial releas
 | SFCS-Intake                    |✅|🚧|❌|❌|❌|
 | SFCS-Tools                     |❌|❌|❌|❌|❌|
 | ZCP-Architecture               |✅|✅|✅|✅|✅|
-| ZCP-Nodes                      |🚧|🚧|🚧|🚧|❌|
+| ZCP-Nodes                      |✅|✅|✅|❌|❌|
+| ZCP-GraphBuilder               |✅|✅|✅|❌|❌|
+| ZCP-Serialization              |✅|🚧|❌|❌|❌|
 | Backend - Compiling/Flattening |✅|❌|❌|❌|❌|
 | Backend - MOA                  |✅|❌|❌|❌|❌|
 | Backend - Support              |✅|❌|❌|❌|❌|
@@ -52,6 +54,8 @@ When something has all green checkmarks, it is completely done to initial releas
 * ZCP needs to have serialization node level added, and SFCS will need to be changed appropriately.
 * Tools needs a rebuild, and once done the documentation will need to be updated.
 * Resources needs actual documentation, and to be fleshed out more fully in terms of classes.
+* Graph Builder may be out of sync with frontend
+* Serialization section of ZCP module still needs coding to capture config, even if backend node serialization process is doen.
 
 ## Next steps
 
