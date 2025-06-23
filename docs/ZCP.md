@@ -43,55 +43,87 @@ Each edge has a **color** determined by its emission site on the source vertex. 
 
 During compilation, we encounter **dangling edges** - edges with a source vertex but no target vertex yet. The GraphBuilderNode class implements edge-centric forward reference resolution, treating compilation as incremental edge connection rather than vertex manipulation. They are both a closure of edges we wish to point at the upcoming node, and later on a capture of that node itself.
 
-## ZCP Node Hierarchy
+## ZCP Node Pipeline Overview
 
-### High-Level ZCP Nodes
-ZCP nodes represent zones of text with unresolved string references:
-
-* **Sequence/Block**: Construction metadata for provenance tracking
-* **Resource specs**: Placeholder → resource mapping (unresolved)
-* **Raw text**: Template with placeholders like `{resource_name}`
-* **Zone advance str**: String that triggers advancement (e.g., "[Answer]")
-* **Tags**: List of string tags for selective extraction
-* **Timeout**: Maximum tokens before forced advancement
-* **Next zone**: Simple linked list pointer (no flow control)
-
-### Resolved ZCP (RZCP) Nodes  
-RZCP represents the stage with resolved flow control and construction callbacks:
-
-* **Construction callback**: Function that returns tokenized prompt when called
-* **Integer tokens**: Zone advance and jump tokens as token IDs NumPy array
-* **Graph connectivity**: Full next_zone and jump_zone references resolved
-* **Input/Output flags**: Control data flow behavior
-* **Tool callbacks**: Optional tool integration functions
-* **Tags**: Boolean arrays for tag membership
-
-### Lowered ZCP (LZCP) Nodes
-
-LZCP is the final stage ready for TTFA compilation, with full sampling resolution:
-
-* **Tokens**: Actual token sequence as numpy array (from construction callback)
-* **Zone advance tokens**: Token triggering np.array  
-* **Jump tokens**: Integer token IDs as np.array
-* **Tags**: Boolean array for tag membership
-* **Timeout**: Integer token limit
-* **Input/Output flags**: Boolean values
-* **Graph connectivity**: Resolved to LZCP node references
-* **Tool callbacks**: Resolved tool integration
-
-## Compilation Pipeline
-
-The compilation process follows this transformation:
+The ZCP intermediate representation consists of four sequential stages, each resolving different types of abstractions:
 
 ```
-[front end..] [IR]  [backend...........]
-UDPL → ZCP →  RZCP → LZCP → TTFA Bytecode
+ZCP → RZCP → SZCP → LZCP
 ```
 
-1. **UDPL parsing** produces ZCP nodes with string templates
-2. **SFCS flow control** converts ZCP to RZCP with flow control graph and construction callbacks
-3. **Batch sampling** converts RZCP to LZCP by calling construction callbacks to get actual tokens.
-4. **Graph flattening** converts LZCP to TTFA instruction sequences
+**Frontend/Backend Boundary:**
+The pipeline splits between frontend (client-side) and backend (server-side) execution:
+
+* **Frontend**: ZCP → RZCP → SZCP (with serialization)
+* **Backend**: SZCP (deserialization) → LZCP → TTFA Bytecode
+
+**Stage Responsibilities:**
+1. **ZCP → RZCP**: Resolves flow control and creates sampling callbacks
+2. **RZCP → SZCP**: Executes sampling callbacks to resolve all placeholders to final text
+3. **SZCP → LZCP**: Tokenizes content and resolves tool callbacks for execution
+
+SZCP serves as the **serialization boundary**, enabling "compile locally, execute remotely" workflows by containing fully resolved text content that can be transmitted over networks.
+
+## Node Specifications
+
+### General Node Properties
+
+All ZCP nodes share fundamental characteristics that support the DCG-IO graph model:
+
+* **Graph Structure**: Each node supports the edge-colored graph model with nominal emission (next_zone) and control emission (jump_zone) sites
+* **Provenance Tracking**: Sequence and block identifiers for error reporting and debugging
+* **Zone Advancement**: Trigger strings or tokens that cause transitions between zones
+* **Tag System**: Metadata for selective extraction of generated content
+* **Timeout Protection**: Maximum token limits to prevent infinite generation
+* **Lowering Pipeline**: Each node type can transform to the next stage in the compilation process
+
+### ZCP Nodes
+
+**Purpose**: Template representation with unresolved resource placeholders.
+
+ZCP nodes are the direct output of UDPL parsing, containing string templates with placeholder syntax. They represent the user's intent before any resolution has occurred.
+
+**Key Characteristics:**
+* **Unresolved placeholders**: Contains `{resource_name}` template syntax
+* **Resource specifications**: Mappings from placeholders to resource definitions
+* **Construction callbacks**: Functions that can resolve templates when given actual resources
+* **Simple linking**: Only next_zone pointers, no flow control yet
+
+### RZCP Nodes  
+
+**Purpose**: Flow control resolution with executable sampling callbacks.
+
+RZCP nodes represent the stage where flow control graphs have been constructed and resource resolution mechanisms are in place, but actual sampling has not yet occurred.
+
+**Key Characteristics:**
+* **Flow control resolution**: Full next_zone and jump_zone graph connectivity
+* **Sampling callbacks**: Functions that return resolved text strings (not tokens)
+* **Input/output flags**: Control data flow behavior for extraction
+* **Tool integration**: Tool names for serializable tool references
+
+### SZCP Nodes
+
+**Purpose**: Serialization boundary with fully resolved text content.
+
+SZCP nodes mark the frontend/backend boundary. All resource placeholders have been resolved to final text, making the nodes ready for network transmission.
+
+**Key Characteristics:**
+* **Resolved text content**: All placeholders replaced with actual text
+* **Serialization support**: Can be converted to/from network-transmissible format
+* **Tool references**: Tool names (not callbacks) for backend resolution
+* **Complete graph preservation**: Maintains all DCG-IO properties across serialization
+
+### LZCP Nodes
+
+**Purpose**: Execution-ready representation with tokenized content.
+
+LZCP nodes are the final stage before TTFA compilation, with all text converted to token arrays and all tools resolved to executable callbacks.
+
+**Key Characteristics:**
+* **Tokenized content**: All text converted to numpy token arrays
+* **Resolved tools**: Tool names converted to executable callback functions
+* **Boolean tag arrays**: Tag membership as boolean vectors for efficient processing
+* **Execution validation**: Extensive consistency checking for backend execution
 
 ## Implementation Notes
 
@@ -99,6 +131,11 @@ UDPL → ZCP →  RZCP → LZCP → TTFA Bytecode
 
 **Mathematical Constraints**: The DCG-IO constraints ensure that every compiled workflow has guaranteed termination properties and predictable execution flow, making the TTFA backend implementation tractable.
 
-**Lowering Pipeline**: Each lowering stage resolves one type of abstraction - ZCP→RZCP resolves flow control and creates callbacks, RZCP→LZCP resolves sampling by executing callbacks.
+**Lowering Pipeline**: Each lowering stage resolves one type of abstraction:
+* ZCP→RZCP resolves flow control and creates callbacks
+* RZCP→SZCP resolves sampling by executing callbacks to get final text
+* SZCP→LZCP resolves tokenization and tool callbacks for execution
 
 **Cycle Handling**: All lowering methods include cycle detection via `lowered_map` parameters to handle complex flow control graphs with loops correctly.
+
+**Frontend/Backend Split**: SZCP serves as the clean boundary between client compilation and server execution, enabling distributed workflows while maintaining mathematical guarantees.

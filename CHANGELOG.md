@@ -6,6 +6,14 @@ All notable changes to Workflow Forge will be documented in this file.
 
 *Note: This is an early development release. SFCS flow control and TTFA execution engine are still in development. Backend engine is not yet functional. Language is still vulnerable to change, and backwards compatibility not yet guaranteed*
 
+## [0.1.5]
+
+6-23-2025
+
+- Added new escape strategy. "[Escape]....[EndEscape]"
+- Pivoted a bunch of documentation to comply
+- Ensured documention was up to date before beginning final integration rebuild up to LZCP.
+
 ## [0.1.4]
 
 6-21-2025

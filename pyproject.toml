@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "workflow-forge"
-version = "0.1.4"
+version = "0.1.5"
 description = "AI models that control their own prompt feeds"
 readme = "README.md"
 license = {text = "MIT"}
