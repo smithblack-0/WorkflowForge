@@ -117,7 +117,7 @@ valid_tags = ["Training", "Final"]
 default_max_token_length = 20000
 sequences = ["blocks"]
 control_token = "[Jump]"
-escape_token = ["[Escape]", "[EndEscape]"]
+escape_patterns = ["[Escape]", "[EndEscape]"]
 
 [[blocks]]
 text="""[Prompt]Consider and resolve a philosophical dilemma

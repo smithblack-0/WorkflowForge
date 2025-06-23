@@ -54,7 +54,7 @@ valid_tags = ["Training", "Correct", "Incorrect"]
 default_max_token_length = 20000
 sequences = ["setup", "reasoning", "conclusion"]
 control_token = "[Jump]"
-escape_token = ["[Escape]", "[EndEscape]"]
+escape_patterns = ["[Escape]", "[EndEscape]"]
 tools = ["search", "calculator"]
 ```
 
@@ -68,7 +68,7 @@ tools = ["search", "calculator"]
 - `default_max_token_length`: Maximum generation length per zone, unless overridden.
 - `sequences`: List of named sequences. Each corresponds to a section of blocks.
 - `control_token`: Pattern used by models to trigger flow control transitions.
-- `escape_token`: Patterns that disable control transitions when generated.
+- `escape_patterns`: Patterns that disable control transitions when generated. Two of them.
 - `tools`: List of valid tool names that can be referenced in SFCS.
 
 ### Linting Conditions
@@ -79,7 +79,7 @@ tools = ["search", "calculator"]
 - `default_max_token_length`: Must be integer > 0
 - `sequences`: Must be nonempty list of strings
 - `control_token`: Must be nonempty string
-- `escape_token`: Must be list of exactly two strings.
+- `escape_patterns`: Must be list of exactly two strings.
 - `tools`: Must be list of strings (optional)
 
 ## Flow Control and Escaping Control Patterns

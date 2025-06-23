@@ -6,7 +6,7 @@ of the constraints.
 
 
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import warnings
 
 
@@ -29,7 +29,7 @@ class Config:
     default_max_token_length: int
     sequences: List[str]
     control_token: str
-    escape_token: str
+    escape_patterns: Tuple[str, str]
     special_tokens: List[str]
     misc: Dict[str, Any]
 
@@ -163,7 +163,7 @@ def parse_config(toml_data: Dict[str, Any]) -> Config:
         default_max_token_length=default_max_token_length,
         sequences=sequences,
         control_token=control_token,
-        escape_token=escape_token,
+        escape_patterns=escape_token,
         special_tokens=special_tokens,
         misc=toml_data
     )

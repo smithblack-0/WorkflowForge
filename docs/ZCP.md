@@ -2,6 +2,10 @@
 
 The Zone Control Protocol (ZCP) is the Intermediate Representation used to encode flow control graphs before compilation to bytecode for the TTFA backend. ZCP represents AI workflows as mathematically well-defined directed graphs with specific properties that enable efficient compilation and execution.
 
+## Notes on status
+
+The ZCP documentation is most likely to become out of date, as it is what is used to couple the frontend and the backend. Be wary of this; while making changes between them it is possible this may become out of date accidentally.
+
 ## Graph Theory Foundation
 
 ### Directed Cyclic IO Graphs (DCG-IO)
