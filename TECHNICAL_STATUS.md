@@ -49,6 +49,7 @@ When something has all green checkmarks, it is completely done to initial releas
 
 # Current issues and priorities
 
+* ZCP-Nodes needs another pass now that we have escape open AND close tokens.
 * Tools needs a rebuild, and once done the documentation will need to be updated.
 * Resources needs actual documentation, and to be fleshed out more fully in terms of classes.
 * Graph Builder may be out of sync with frontend
