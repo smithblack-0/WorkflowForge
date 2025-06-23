@@ -29,14 +29,14 @@ class TestBlockStructureValidation(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.config = Config(
-            zone_tokens=["[Prompt]", "[Answer]", "[EOS]"],
-            required_tokens=["[Prompt]", "[Answer]"],
+            zone_patterns=["[Prompt]", "[Answer]", "[EOS]"],
+            required_patterns=["[Prompt]", "[Answer]"],
             valid_tags=["Training", "Correct", "Incorrect"],
             default_max_token_length=1000,
             sequences=["test_sequence"],
-            control_token="[Jump]",
+            control_pattern="[Jump]",
             escape_token="[Escape]",
-            special_tokens=["[Prompt]", "[Answer]", "[EOS]", "[Jump]", "[Escape]"],
+            special_patterns=["[Prompt]", "[Answer]", "[EOS]", "[Jump]", "[Escape]"],
             misc={}
         )
 
@@ -174,14 +174,14 @@ class TestTextParsing(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.config = Config(
-            zone_tokens=["[Prompt]", "[Answer]", "[EOS]"],
-            required_tokens=["[Prompt]", "[Answer]"],
+            zone_patterns=["[Prompt]", "[Answer]", "[EOS]"],
+            required_patterns=["[Prompt]", "[Answer]"],
             valid_tags=["Training"],
             default_max_token_length=1000,
             sequences=["test"],
-            control_token="[Jump]",
+            control_pattern="[Jump]",
             escape_token="[Escape]",
-            special_tokens=["[Prompt]", "[Answer]", "[EOS]", "[Jump]", "[Escape]"],
+            special_patterns=["[Prompt]", "[Answer]", "[EOS]", "[Jump]", "[Escape]"],
             misc={}
         )
 
@@ -242,14 +242,14 @@ class TestTextParsing(unittest.TestCase):
         """Test error when too many zone tokens are present."""
         # Add extra tokens beyond what config allows
         config_with_few_tokens = Config(
-            zone_tokens=["[Prompt]", "[Answer]", "[EOS]"],
-            required_tokens=["[Prompt]"],
+            zone_patterns=["[Prompt]", "[Answer]", "[EOS]"],
+            required_patterns=["[Prompt]"],
             valid_tags=["Training"],
             default_max_token_length=1000,
             sequences=["test"],
-            control_token="[Jump]",
+            control_pattern="[Jump]",
             escape_token="[Escape]",
-            special_tokens=["[Prompt]", "[Answer]", "[EOS]", "[Jump]", "[Escape]"],
+            special_patterns=["[Prompt]", "[Answer]", "[EOS]", "[Jump]", "[Escape]"],
             misc={}
         )
 
@@ -309,14 +309,14 @@ class TestTagsValidation(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.config = Config(
-            zone_tokens=["[Prompt]", "[Answer]", "[EOS]"],
-            required_tokens=["[Prompt]"],
+            zone_patterns=["[Prompt]", "[Answer]", "[EOS]"],
+            required_patterns=["[Prompt]"],
             valid_tags=["Training", "Correct", "Incorrect"],
             default_max_token_length=1000,
             sequences=["test"],
-            control_token="[Jump]",
+            control_pattern="[Jump]",
             escape_token="[Escape]",
-            special_tokens=["[Prompt]", "[Answer]", "[EOS]", "[Jump]", "[Escape]"],
+            special_patterns=["[Prompt]", "[Answer]", "[EOS]", "[Jump]", "[Escape]"],
             misc={}
         )
 
@@ -427,14 +427,14 @@ class TestZoneOrchestration(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.config = Config(
-            zone_tokens=["[Prompt]", "[Answer]", "[EOS]"],
-            required_tokens=["[Prompt]"],
+            zone_patterns=["[Prompt]", "[Answer]", "[EOS]"],
+            required_patterns=["[Prompt]"],
             valid_tags=["Training", "Correct"],
             default_max_token_length=1000,
             sequences=["test_sequence"],
-            control_token="[Jump]",
+            control_pattern="[Jump]",
             escape_token="[Escape]",
-            special_tokens=["[Prompt]", "[Answer]", "[EOS]", "[Jump]", "[Escape]"],
+            special_patterns=["[Prompt]", "[Answer]", "[EOS]", "[Jump]", "[Escape]"],
             misc={}
         )
 
@@ -552,14 +552,14 @@ class TestErrorHandling(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.config = Config(
-            zone_tokens=["[Prompt]", "[Answer]", "[EOS]"],
-            required_tokens=["[Prompt]"],
+            zone_patterns=["[Prompt]", "[Answer]", "[EOS]"],
+            required_patterns=["[Prompt]"],
             valid_tags=["Training"],
             default_max_token_length=1000,
             sequences=["test_sequence"],
-            control_token="[Jump]",
+            control_pattern="[Jump]",
             escape_token="[Escape]",
-            special_tokens=["[Prompt]", "[Answer]", "[EOS]", "[Jump]", "[Escape]"],
+            special_patterns=["[Prompt]", "[Answer]", "[EOS]", "[Jump]", "[Escape]"],
             misc={}
         )
 

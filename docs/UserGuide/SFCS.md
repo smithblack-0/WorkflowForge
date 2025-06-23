@@ -22,7 +22,7 @@ The backend is quite dumb in some ways. It does not care where a string came fro
 
 "This will be fed [Jump] This will not" 
 
-The model will never reach "This will not" as the TTFA will trigger immediately on seeing the end of the jump token pattern and immediately change zones.
+The model will never reach "This will not" as the TTFA will trigger immediately on seeing the end of the jump pattern and immediately change zones.
 
 ## Program vs Scope
 
@@ -79,8 +79,8 @@ The model will be fed those prompts in order. Note that without extraction comma
 
 Loops continue until the model emits the jump text to exit. Recall that we specified you need to program your own flow control. For now, it is suggested to have a flow_control.toml file in a folder you keep this in separately, and consider it tightly coupled. Eventually, we will likely provide our own folder.
 
-**Important**: Flow control defaults to loop. Only emitting a jump token will exit the loop.
-**Warning**: The model will IMMEDIATELY jump upon seeing the control token.
+**Important**: Flow control defaults to loop. Only emitting a jump pattern will exit the loop.
+**Warning**: The model will IMMEDIATELY jump upon seeing the control pattern.
 
 ```toml
 [[loop]]
@@ -112,7 +112,7 @@ with program.loop("loop", min=3, max=6) as loop_scope:
 
 ### .when - Conditional Branching
 
-**Critical**: The "if" branch executes by default. The model must emit a jump token to skip it.
+**Critical**: The "if" branch executes by default. The model must emit a jump pattern to skip it.
 
 ```python
 with program.loop("loop", min=3, max=6) as loop_scope:

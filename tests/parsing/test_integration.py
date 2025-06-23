@@ -138,12 +138,12 @@ tags = [[],["Feedback"]]
 
             # Verify config structure
             self.assertIsInstance(config, Config)
-            self.assertEqual(config.zone_tokens, ["[Prompt]", "[Answer]", "[EOS]"])
-            self.assertEqual(config.required_tokens, ["[Prompt]", "[Answer]"])
+            self.assertEqual(config.zone_patterns, ["[Prompt]", "[Answer]", "[EOS]"])
+            self.assertEqual(config.required_patterns, ["[Prompt]", "[Answer]"])
             self.assertEqual(config.valid_tags, ["Training", "Correct", "Incorrect", "Feedback"])
             self.assertEqual(config.default_max_token_length, 20000)
             self.assertEqual(config.sequences, ["setup", "loop", "solving", "concluding"])
-            self.assertEqual(config.control_token, "[Jump]")
+            self.assertEqual(config.control_pattern, "[Jump]")
             self.assertEqual(config.escape_token, "[Escape]")
             self.assertEqual(config.num_zones_per_block, 2)  # 3 zone tokens - 1
 

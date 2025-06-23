@@ -1,36 +1,65 @@
-## Contributing
+# Contributing
 
-Workflow Forge is designed to become a community standard for AI workflow automation. We welcome contributions from researchers, engineers, and AI practitioners
+Workflow Forge is designed to become a community standard for AI workflow automation. We welcome contributions from researchers, engineers, and AI practitioners. 
 
-### Current Priority Areas
+## Development Philosophy
 
-Under Control by Chris until first working release, though suggestions welcome:
+### Document driven development.
+Workflow forge core, which at the moment is workflow forge itself, is being developed using a documentation-driven development strategy. This means we declare in the documentation what should happen, and then update the codebase to match. 
 
--  **SFCS Implementation** - Flow control compilation logic
--  **TTFA Backend** - GPU tensor operations for autonomous execution
+Documentation must exist at least to the extent of "containerizing" issues such that modules can be swapped out if a core technology is found to be impossible. API specs need to be quite strong. Technical sections can go a bit deeper but may be considered more optional; However, interaction APIs should always be up to date.
 
-Excellent places for improvement.
-- **Community Direction** - What do we want?
--  **Testing & Validation cases** - Particularly in tool usage, about which I know only a bit.
--  **Documentation** - Examples, tutorials, and API docs
-- **Research Applications** - Novel use cases and benchmark applications.
+Pull requests that add api details without accompanying documentation changes will be rejected, particularly if they modify the core. This is also true if something has been majorly rescoped without documentation changes.
+
+### Code Quality
+
+Core section code quality must be extremely high to be accepted; however, we would be happy to help you get to that level. Type hints, docstrings, and maintainable software practices are required. Note that if you want to add something in a separate folder that is not core, the standards may become considerably lower.
+
+#### Design patterns
+
+The design patterns criteria is quite strict. **Maintainability** is the number one goal, and we frontload coding effort in pursuit of it. This is because the underlying logic of the core is extremely complex to verify unless broken up well.
+
+* The single responsibility principle is heavily weighted. Modularization is required. 
+* Dependency injection is required. This is for both testing and maintenance purposes. Utility functions to construct classes can then be defined with the "make" pattern.
+* Except in very linear processes, functions or methods over 100 lines long should be broken apart. 
+* Functions which invoke other functions should consider passing the function in as a parameter for unit testing and modularization.
+* Large centralized classes that do everything are discouraged. Instead, break responsibilities into "processing" classes  which do something, and then an organization class which organizes and orchastrates them.
+* "processing" classes should generally never exceed 300 lines. If they do, you usually need to rethink your abstractions. This does not apply to organization classes that just contain and provide passthroughs into a bunch of doer classes.
+
+### Commentary and typing
+
+The commentary standard is thorough, and should focus on
+why and what, over how. The person reading the code can
+understand how. Nonetheless, avoid explicitly linking comments
+to other classes where possible to avoid stale comments.
+
+* Type hints are mandatory in all functions, methods, and classes.
+* Docstrings are mandatory in all classes. 
+* Method strings are mandatory in all public methods.
+
+### Testing
+
+Test quality must be extremely high in the core
+
+* The unittest library is used in the core.
+* Unit test coverage must be 100%, and focus on each main responsibility.
+* Integration test coverage must cover major cases. 
+* Each architecture zone must have an integration test.
+* The architecture itself must have an end-to-end test.
+* LLM assistance writing unit tests is acceptable.
+
+Additionally:
+
+- Unit tests should be performed using mock. 
+- One test suite should exist per tested feature.
+- Error raising should also be tested.
 
 ### Getting Started
 1. Read the [Architecture Overview](docs/Overview.md) to understand the system. 
-2. Read the [UDPL Spec](docs/Frontend/UDPL.md) to understand how UDPL and the declaritive syntax works.
-3. Read the [SFCS Spec](docs/Frontend/SFCS.md) to understand how flow control works and the common mistakes.
+2. Read the [UDPL Spec](docs/UserGuide/UDPL.md) to understand how UDPL and the declaritive syntax works.
+3. Read the [SFCS Spec](docs/UserGuide/SFCS.md) to understand how flow control works and the common mistakes.
 4. Check [open issues](../../issues) for specific tasks
 5. Join discussions in [GitHub Discussions](../../discussions) for design questions
 
-### Philosophy
-
-These are the rules I tend to code by when doing large, complex projects. It is neither waterfall nor agile, but has a frontloaded architecture phase with clear termination.   
-
-1) Poc/Fucking around. Figure out the problem scope, and make the unknown unknowns into known unknowns. around 5% of the effort
-2) Artitect Interfaces. Figure out what the major modules are, and how information will need to flow between them. This is not final as in waterfall. Figure out what each major module needs to do. 20% of effort. You are done when failures are containerized; you could swap out one failing module for another design. That is my anti-perfect measure. This is Document Driven DEvelopment
-3) PoC2/Fucking around 2. Take each module, and make sure I am not asking something impossible from it. 10%. This prevents "OCRAP it cannot do that" issues. It also tells us where we did not abstract enough, or overabstracted.
-4) Architect System. Come up with a final plan. Get everyone on the same page if in a team. Make sure responsibilities and objectives are clear. Modify architecture to account for the hidden dependencies, and rebuild units. This, again, ends when failures are containerized. It is about fixing our architecture plan and addressing critical technical details, not waterfall. 15%
-5) Primary coding. 20%
-6) Pivoting interfaces and propogating due to missed dependencies. 30%
 
 

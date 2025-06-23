@@ -86,12 +86,12 @@ def validate_flow_control_safety(zone_text: str, config: Config, zone_info: Zone
         ZoneParseError: If unescaped flow control tokens are found
     """
     # Check if control token is present
-    if config.control_token in zone_text:
+    if config.control_pattern in zone_text:
         # Check if escape token is also present
         if config.escape_token not in zone_text:
             raise ZoneParseError(
                 f"In block {zone_info.block_index} of sequence '{zone_info.sequence_name}', "
-                f"zone was detected with '{config.control_token}' but no '{config.escape_token}' token. "
+                f"zone was detected with '{config.control_pattern}' but no '{config.escape_token}' token. "
                 f"Do you mean to teacher-force flow control? If so, this will trigger immediate flow control during prompting."
             )
 

@@ -25,14 +25,14 @@ class TestZCPLoweringIntegration(unittest.TestCase):
         """Create realistic test fixtures manually (no parser)."""
         # Create test config
         self.config = Config(
-            zone_tokens=["[Prompt]", "[Answer]", "[EOS]"],
-            required_tokens=["[Prompt]", "[Answer]"],
+            zone_patterns=["[Prompt]", "[Answer]", "[EOS]"],
+            required_patterns=["[Prompt]", "[Answer]"],
             valid_tags=["Training", "Correct", "Feedback"],
             default_max_token_length=1000,
             sequences=["setup", "control", "body"],
-            control_token="[Jump]",
+            control_pattern="[Jump]",
             escape_token="[Escape]",
-            special_tokens=["[Prompt]", "[Answer]", "[EOS]", "[Jump]", "[Escape]"],
+            special_patterns=["[Prompt]", "[Answer]", "[EOS]", "[Jump]", "[Escape]"],
             misc={}
         )
 

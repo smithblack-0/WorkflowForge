@@ -327,31 +327,31 @@ sequences, config = forge.parse_udpl_file("prompts.toml")
 # Tokenizer setup
 
 tokenizer = make_tokenizer()
-tokenizer = add_special_tokens(tokenizer, config.special_tokens)
+tokenizer = add_special_tokens(tokenizer, config.special_patterns)
 
 # Programming the actual control 
 
 program = forge.new_program(sequences, resources, config, tokenizer)
-program.run(sequence="setup") # This runs the sequence called setup
-with program.while(sequence="loop", min=2, max=6) as loop:
-   # Loop, recall, can sometimes emit a 
-   # [Jump] token when run. This brings us 
-   # OUT of the loop. Control sequences
-   # should have prompting telling the model
-   # when to emit the control token.
-   loop.run("solving")
+program.run(sequence="setup")  # This runs the sequence called setup
+with program.while (sequence="loop", min=2, max=6) as loop:
+    # Loop, recall, can sometimes emit a 
+    # [Jump] token when run. This brings us 
+    # OUT of the loop. Control sequences
+    # should have prompting telling the model
+    # when to emit the control token.
+    loop.run("solving")
 program.run("concluding")
 
 # Programming the tag extraction to automatically
 # extract relevant zones.
 
-program.extract(name="good_synthetic_training_data", 
-                tags = ["Training", "Correct"]
+program.extract(name="good_synthetic_training_data",
+                tags=["Training", "Correct"]
                 )
 program.extract(name="bad_synthetic_training_data",
-                tags = ["Training", "Incorrect"])
+                tags=["Training", "Incorrect"])
 program.extract(name="feedback",
-                tags = ["Feedback"])
+                tags=["Feedback"])
 
 # Compile the program. 
 workflow_factory = program.compile(backend="default")

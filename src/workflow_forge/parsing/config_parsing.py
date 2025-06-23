@@ -16,21 +16,20 @@ class Config:
     The configuration object produced by good
     UDPL files. Provides most of the strong
     typing guarantees of the project.
-
     """
 
     @property
     def num_zones_per_block(self) -> int:
-        return len(self.zone_tokens) - 1
+        return len(self.zone_patterns) - 1
 
-    zone_tokens: List[str]
-    required_tokens: List[str]
+    zone_patterns: List[str]
+    required_patterns: List[str]
     valid_tags: List[str]
     default_max_token_length: int
     sequences: List[str]
-    control_token: str
+    control_pattern: str
     escape_patterns: Tuple[str, str]
-    special_tokens: List[str]
+    tools: List[str]
     misc: Dict[str, Any]
 
 
@@ -58,36 +57,36 @@ def parse_config(toml_data: Dict[str, Any]) -> Config:
 
     config_section = toml_data['config']
 
-    # Validate zone_tokens
-    if 'zone_tokens' not in config_section:
-        raise ConfigParseError("Missing required 'zone_tokens' in config")
+    # Validate zone patterns
+    if 'zone_patterns' not in config_section:
+        raise ConfigParseError("Missing required 'zone_patterns' in config")
 
-    zone_tokens = config_section['zone_tokens']
-    if not isinstance(zone_tokens, list):
-        raise ConfigParseError("'zone_tokens' must be a list of strings")
-    if len(zone_tokens) == 0:
-        raise ConfigParseError("'zone_tokens' cannot be empty")
-    if len(zone_tokens) < 2:
-        raise ConfigParseError("'zone_tokens' must contain at least 2 tokens")
-    if not all(isinstance(token, str) for token in zone_tokens):
-        raise ConfigParseError("All 'zone_tokens' must be strings")
+    zone_patterns = config_section['zone_patterns']
+    if not isinstance(zone_patterns, list):
+        raise ConfigParseError("'zone_patterns' must be a list of strings")
+    if len(zone_patterns) == 0:
+        raise ConfigParseError("'zone_patterns' cannot be empty")
+    if len(zone_patterns) < 2:
+        raise ConfigParseError("'zone_patterns' must contain at least 2 patterns")
+    if not all(isinstance(token, str) for token in zone_patterns):
+        raise ConfigParseError("All 'zone_patterns' must be strings")
 
-    # Validate required_tokens
-    if 'required_tokens' not in config_section:
-        raise ConfigParseError("Missing requirement 'required_tokens' in config")
+    # Validate required_patterns
+    if 'required_patterns' not in config_section:
+        raise ConfigParseError("Missing requirement 'required_patterns' in config")
 
-    required_tokens = config_section['required_tokens']
-    if not isinstance(required_tokens, list):
-        raise ConfigParseError("'required_tokens' must be a list of strings")
-    if len(required_tokens) == 0:
-        raise ConfigParseError("'required_tokens' cannot be empty")
-    if not all(isinstance(token, str) for token in required_tokens):
-        raise ConfigParseError("All 'required_tokens' must be strings")
+    required_patterns = config_section['required_patterns']
+    if not isinstance(required_patterns, list):
+        raise ConfigParseError("'required_patterns' must be a list of strings")
+    if len(required_patterns) == 0:
+        raise ConfigParseError("'required_patterns' cannot be empty")
+    if not all(isinstance(token, str) for token in required_patterns):
+        raise ConfigParseError("All 'required_patterns' must be strings")
 
-    # Check that all required_tokens are in zone_tokens
-    for token in required_tokens:
-        if token not in zone_tokens:
-            raise ConfigParseError(f"Required token '{token}' not found in zone_tokens")
+    # Check that all required_patterns are in zone_patterns
+    for token in required_patterns:
+        if token not in zone_patterns:
+            raise ConfigParseError(f"feature '{token}' in 'required_patterns' not found in zone_patterns")
 
     # Validate valid_tags
     if 'valid_tags' not in config_section:
@@ -125,45 +124,52 @@ def parse_config(toml_data: Dict[str, Any]) -> Config:
     if not all(seq.strip() for seq in sequences):
         raise ConfigParseError("All 'sequences' must be non-empty strings")
 
-    # Validate control_token
-    if 'control_token' not in config_section:
-        raise ConfigParseError("Missing required 'control_token' in config")
+    # Validate control_pattern
+    if 'control_pattern' not in config_section:
+        raise ConfigParseError("Missing required 'control_pattern' in config")
 
-    control_token = config_section['control_token']
-    if not isinstance(control_token, str):
-        raise ConfigParseError("'control_token' must be a string")
-    if not control_token.strip():
-        raise ConfigParseError("'control_token' cannot be empty")
+    control_pattern = config_section['control_pattern']
+    if not isinstance(control_pattern, str):
+        raise ConfigParseError("'control_pattern' must be a string")
+    if not control_pattern.strip():
+        raise ConfigParseError("'control_pattern' cannot be empty")
 
-    # Validate escape_token
-    if 'escape_token' not in config_section:
-        raise ConfigParseError("Missing required 'escape_token' in config")
+    # Validate escape patterns
+    if 'escape_patterns' not in config_section:
+        raise ConfigParseError("Missing required 'escape_patterns' in config")
+    escape_patterns = config_section['escape_patterns']
 
-    escape_token = config_section['escape_token']
-    if not isinstance(escape_token, str):
-        raise ConfigParseError("'escape_token' must be a string")
-    if not escape_token.strip():
-        raise ConfigParseError("'escape_token' cannot be empty")
+    if not isinstance(escape_patterns, list):
+        raise ConfigParseError("'escape_patterns' must be a list of strings")
+    if len(escape_patterns) != 2:
+        raise ConfigParseError("'escape_patterns' must contain exactly two strings")
 
-    # Create special_tokens list (all tokens needed based on config)
-    special_tokens = zone_tokens.copy()
-    if control_token not in special_tokens:
-        special_tokens.append(control_token)
-    if escape_token not in special_tokens:
-        special_tokens.append(escape_token)
-    for token in zone_tokens:
-        if token not in special_tokens:
-            special_tokens.append(token)
+    for i, string in enumerate(escape_patterns):
+        if not isinstance(string, str):
+            raise ConfigParseError(f"{i}th 'escape_patterns' must be a string")
+        if not string.strip():
+            raise ConfigParseError(f"{i}th 'escape_patterns' cannot be empty")
+    escape_patterns = tuple(escape_patterns)
+
+    # Validate tools config.
+    if "tools" not in config_section:
+        raise ConfigParseError("Missing required tools in config")
+    tools = config_section['tools']
+    if not isinstance(tools, list):
+        raise ConfigParseError("'tools' must be a list")
+    for tool in tools:
+        if not isinstance(tool, str):
+            raise ConfigParseError("each defined 'tool' must be a string")
 
     # Create Config object
     return Config(
-        zone_tokens=zone_tokens,
-        required_tokens=required_tokens,
+        zone_patterns=zone_patterns,
+        required_patterns=required_patterns,
         valid_tags=valid_tags,
         default_max_token_length=default_max_token_length,
         sequences=sequences,
-        control_token=control_token,
-        escape_patterns=escape_token,
-        special_tokens=special_tokens,
+        control_pattern=control_pattern,
+        escape_patterns=escape_patterns,
+        tools = tools,
         misc=toml_data
     )

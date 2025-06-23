@@ -231,7 +231,7 @@ def parse_text_into_zones(text: str, config: Config) -> List[Dict[str, str]]:
     # We have to account for the fact that escape tokens
     # can escape zone edges too, or not, which makes this complex.
 
-    pattern = "|".join(re.escape(token) for token in config.special_tokens)
+    pattern = "|".join(re.escape(token) for token in config.special_patterns)
     splits = re.split(f"({pattern})", text)
 
     # Basic validation - need at least 3 splits for any zones to even be possible
@@ -260,7 +260,7 @@ def parse_text_into_zones(text: str, config: Config) -> List[Dict[str, str]]:
             is_escaped = False
         else:
             current_string += content + control_token
-            if control_token in config.zone_tokens:
+            if control_token in config.zone_patterns:
                 if not is_first_zone_done:
                     current_string = control_token
                     is_first_zone_done = True
@@ -271,11 +271,11 @@ def parse_text_into_zones(text: str, config: Config) -> List[Dict[str, str]]:
                 is_escaped = True
     zone_contents.append(contents[-1])
 
-    if len(zone_tokens) < len(config.required_tokens):
+    if len(zone_tokens) < len(config.required_patterns):
         raise BlockParseError("Not enough zone tokens in block to meet required tokens")
-    if len(zone_tokens) > len(config.zone_tokens):
+    if len(zone_tokens) > len(config.zone_patterns):
         raise BlockParseError("Too many zone tokens in block - exceeds maximum allowed by config")
-    for i, (config_token, actual_token) in enumerate(zip(zone_tokens, config.zone_tokens)):
+    for i, (config_token, actual_token) in enumerate(zip(zone_tokens, config.zone_patterns)):
         if config_token != actual_token:
             raise BlockParseError(f"Zone token '{config_token}' does not match zone token '{actual_token}'"
                                   f" at position {i}")
@@ -284,7 +284,7 @@ def parse_text_into_zones(text: str, config: Config) -> List[Dict[str, str]]:
     # text, and the advance token that goes with it. Fill in anything missing
 
     zone_structures = []
-    for i, zone_token in enumerate(config.zone_tokens):
+    for i, zone_token in enumerate(config.zone_patterns):
         content = zone_contents[i] if i < len(zone_contents) else ""
         zone_structures.append({"advance_token": zone_token, "zone_text": content})
     return zone_structures
