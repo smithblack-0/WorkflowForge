@@ -4,74 +4,23 @@
 
 Workflow Forge intercepts and replaces tokens in the generation stream, allowing models to execute complex workflows by generating control tokens that instantly redirect their own execution path - all without ever leaving the GPU.
 
-## The Core Innovation: Token Stream Interception
+## Project Status
 
-Instead of calling the model multiple times with different prompts, Workflow Forge lets the model **control its own execution flow** during a single generation:
+**Pre-Alpha**
 
-```
-Model generates: "I need to think more... [Jump]"
-                                         ↑
-Workflow Forge intercepts this pattern ────┘
-                 ↓
-Instantly replaces stream with: "Let me reconsider the problem..."
-                 ↓  
-Model continues generating from new context
-```
+Not yet operation, but prove of concepts for the difficult issues have been executed. This is not a pet project, but intended as serious, foundational research and production infrastructure and the code base, tests, documentation, and interface is held to this standard. 
 
-**This happens entirely in tensor operations** - no Python roundtrips, no generation restarts, no external orchestration. The model literally loads precompiled and tokenized prompts by generating special control tokens, then reads through them and generates its own responses. This happens in parallel, during evaluation, across batches, and with flow control. It is designed for evaluation, and is particularly suitable for mass sampling of a particular workflow, as in synthetic training data generation. And once deployed using it is as simple as passing the token stream through a function.
+## Project reason
 
-**What this enables:**
-- **Self-Modifying Workflows**: Models dynamically switch between reasoning strategies mid-generation by declaring its preferred flow prompt or context.
-- **Autonomous Decision Trees**: Each model instance follows different paths based on what it generates. The same workflow is applied, but the choices made can differ. This is Single Workflow Multiple Streams (SWMS), a close cousin of SIMD.
-- **Massive Parallelism**: hundreds of independent decision-making streams per batch. Great for mass sampling.
-- **Zero-Latency Flow Control**: Instant transitions between workflow states.
+Prompt engineering with most current prompt libraries is 
+somewhat like being forced to choose between BASIC or 
+assembly: You can choose to do simple tasks easily,
+or more complex tasks with a lot of work, but you cannot
+do both.Simple single purpose libraries can get common jobs done
+quite easily, but are not very powerful on variations. Meanwhile, the lower level libraries such as Microsoft's 'Guidance' are powerful but require excessive manual and often brittle loading of code resources and segments, making pivots during research or tuning unnecessarily difficult. 
 
-Note additionally that an extra extension means this remains compatible with your existing tokenizers, without having to extend your embeddings. From a userspace perspective these are tokens; however, they need not be added to your tokenizer.
-
-## The Architecture
-
-Workflow Forge uses a multistage compilation pipeline with a clean location to
-serialize for frontend/backend separation. Naturally, it is perfectly possible
-to run the backend on the same machine as the frontend, and even possible to
-skip serialization alltogether; nonetheless, web API hooks are provided.
-
-### Frontend (Client-Side Compilation)
-
-```
-[Frontend userspace.............]   [Compiling chain (front)...............]
-UDPL (Config) → SFCS (Programming) → ZCP      → RZCP      → SZCP
-    ↓               ↓                ↓          ↓             ↓
-TOML Files → Python Flow Control → Blocks → Sampling → SerializableIR
-```
-
-SZCP can be serialized at any point, and sends raw
-data rather than pickle. Note that as far as the user needs
-to be concerned they only ever interact with the frontend
-userspace.
-
-### Backend (Server-Side Execution)  
-
-```
-[Compiling chain (backend)]  [Backend Execution...........]
-SZCP        →     LZCP →     ByteTTFA   → GPU Execution
- ↓                  ↓              ↓           ↓
-SerializableIR → Tokenized → Instructions → Results
-```
-
-### Key Stages:
-- **ZCP**: Sequence linked lists. Think a 'scope'
-- **RZCP**: Graph with resolved flow control and resource callbacks. 
-            Lowering this samples the resources
-- **SZCP**: Fully resolved, serializable workflow.
-- **LZCP**: Tokenized, ready for compiling to bytecode.
-- **ByteTTFA**: Compiled bytecode running on GPU finite automata
-
-### Deployment Flexibility:
-- **Local**: Full pipeline in one process
-- **Distributed**: Frontend compiles to SZCP → HTTP → Backend executes  
-- **Hybrid**: Teams can build workflows locally, deploy remotely
-
-The **SZCP serialization boundary** enables "compile locally, execute remotely" workflows while keeping each stage modular and extensible. Nonetheless, this is intended to be a framework core and while an example using remote access is planned, broader integration of the core into wrappers is not the job of this core.
+This is unnecessary. C++ is a very powerful language that nonetheless can be compiled down to something small and very fast; this is the approach taken here. UDPL allows you to specify chains of prompts to feed with 'tagging' for automatic extraction of texts later, and SFCS is a simple flow control system that captures the flow control graphs and their requirements in a pythonic manner that can then be lowered into
+ZCP. Every effort has been taken to ensure all portions of the pipeline are human readable and easy to grok at a glance - for instance, activating flow control means making an indented flow region in python like normal if you are following standard workflow forge linting protocols.
 
 ## How It Works
 
@@ -171,15 +120,90 @@ workflow_factory = program.compile()
 
 ### 4 Execution.
 
-Naturally, remote execution is about the same thing. Note that with the direct connection used here the we are directly calling into the server.
+Naturally, remote execution is about the same thing. Note that with the direct connection used here the we are directly calling into the server. Loopback, or even remote connections, will eventually be possible.
 
 ```python
+model = ...
+tokenizer = ...
+tools = ...
+backend = forge.make_backend(model, tokenizer, config, tools)
+client = forge.make_session(backend, config)
+
 samples = []
 for batch in range(1000):
     workflow = workflow_factory() #<- This is sampling resources if they existing. This allows feedback between batches.
     results = client.request(config, workflow, batch_size=500)
     samples.extend(results["training_data"])
 ```
+## The Core Innovation: Token Stream Interception
+
+Instead of calling the model multiple times with different prompts, Workflow Forge lets the model **control its own execution flow** during a single generation.:
+
+```
+Model generates: "I need to think more... [Jump]"
+                                         ↑
+Workflow Forge intercepts this pattern ────┘
+                 ↓
+Instantly replaces stream with: "Let me reconsider the problem..."
+                 ↓  
+Model continues generating from new context
+```
+
+**This happens entirely in tensor operations** - no Python roundtrips, no generation restarts, no external orchestration. The model literally loads precompiled and tokenized prompts by generating special control tokens, then reads through them and generates its own responses. This happens in parallel, during evaluation, across batches, and with flow control. It is designed for evaluation, and is particularly suitable for mass sampling of a particular workflow, as in synthetic training data generation. And once deployed using it is as simple as passing the token stream through a function.
+
+Do not make the mistake of misunderstanding, however; this is ultimately intended to work with a wrapper schema like you are used to. Additionally, some special finite state machines ensure you do not have to add special tokens to your vocabulary either, just prompt the model to emit a sequence of text. A series of additional novel innovations in FSM in the backend completes the picture and allows fully vectorized substitution.
+
+**What this enables:**
+- **Self-Modifying Workflows**: Models dynamically switch between reasoning strategies mid-generation by declaring its preferred flow prompt or context.
+- **Autonomous Decision Trees**: Each model instance follows different paths based on what it generates. The same workflow is applied, but the choices made can differ. This is Single Workflow Multiple Streams (SWMS), a close cousin of SIMD.
+- **Massive Parallelism**: hundreds of independent decision-making streams per batch. Great for mass sampling.
+- **Zero-Latency Flow Control**: Instant transitions between workflow states.
+
+
+## The Architecture
+
+Workflow Forge uses a multistage compilation pipeline with a clean location to
+serialize for frontend/backend separation. Naturally, it is perfectly possible
+to run the backend on the same machine as the frontend, and even possible to
+skip serialization alltogether; nonetheless, web API hooks are provided.
+
+### Frontend (Client-Side Compilation)
+
+```
+[Frontend userspace.............]   [Compiling chain (front)...............]
+UDPL (Config) → SFCS (Programming) → ZCP      → RZCP      → SZCP
+    ↓               ↓                ↓          ↓             ↓
+TOML Files → Python Flow Control → Blocks → Sampling → SerializableIR
+```
+
+SZCP can be serialized at any point, and sends raw
+data rather than pickle. Note that as far as the user needs
+to be concerned they only ever interact with the frontend
+userspace.
+
+### Backend (Server-Side Execution)  
+
+```
+[Compiling chain (backend)]  [Backend Execution...........]
+SZCP        →     LZCP →     ByteTTFA   → GPU Execution
+ ↓                  ↓              ↓           ↓
+SerializableIR → Tokenized → Instructions → Results
+```
+
+### Key Stages:
+- **ZCP**: Sequence linked lists. Think a 'scope'
+- **RZCP**: Graph with resolved flow control and resource callbacks. 
+            Lowering this samples the resources
+- **SZCP**: Fully resolved, serializable workflow.
+- **LZCP**: Tokenized, ready for compiling to bytecode.
+- **ByteTTFA**: Compiled bytecode running on GPU finite automata
+
+### Deployment Flexibility:
+- **Local**: Full pipeline in one process
+- **Distributed**: Frontend compiles to SZCP → HTTP → Backend executes  
+- **Hybrid**: Teams can build workflows locally, deploy remotely
+
+The **SZCP serialization boundary** enables "compile locally, execute remotely" workflows while keeping each stage modular and extensible.
     
 ## Use Cases
 
@@ -202,25 +226,11 @@ for batch in range(1000):
 ## Documentation
 
 - 📚 [Complete Documentation](docs/) - Architecture and API reference
-- 📝 [UDPL Specification](docs/UDPL.md) - Prompting language reference  
-- 🔄 [SFCS Guide](docs/SFCS.md) - Flow control programming
+- [Techical Status](TECHNICAL_STATUS.md)
+- 📝 [UDPL Specification](docs/Frontend/UDPL.md) - Prompting language reference  
+- 🔄 [SFCS Guide](docs/Frontend/SFCS.md) - Flow control programming
 - ⚙️ [ZCP Reference](docs/ZCP.md) - Intermediate representation details
 - 🚀 [TTFA Architecture](docs/Autonoma/) - GPU execution engine
-
-## Installation
-
-Pending.
-
-## Status
-
-🚧 **Early Development**
-- ✅ Architecting and scoping done.
-- ✅ UDPL parsing pipeline complete
-- 🚧 SFCS flow control system in development  
-- 🚧 TTFA execution engine in development
-- 🚧 **Tools** coming up, but will be blocking. 
-
-This is a research-grade tool designed for advanced AI workflow automation. The compilation approach enables capabilities impossible with traditional prompt orchestration.
 
 ## Philosophy
 
@@ -230,7 +240,7 @@ The goal is **C++-level power with configuration-level simplicity** - sophistica
 
 ## Contributing
 
-Workflow Forge is designed with the capability of becoming a community standard for AI workflow automation:
+Workflow Forge is designed with the capability of becoming a community standard for AI workflow automation.
 
 - 🐛 [Report Issues](issues/new) 
 - 💡 [Feature Requests](issues/new)

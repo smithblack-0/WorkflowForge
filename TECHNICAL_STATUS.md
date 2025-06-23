@@ -29,7 +29,7 @@ When something has all green checkmarks, it is completely done to initial releas
 
 | Component                      |Architecture|Programming|Tested|Integrated|Integration Testing|
 |--------------------------------|--|--|-|-|-|
-| State machine PoC              |✅|✅|✅|✅|✅
+| State machine PoC              |✅|✅|✅|✅|✅|
 | UDPL                           |✅|✅|✅|✅|✅|
 | Resources                      |✅|🚧|🚧|❌|❌|
 | SFCS-Constuction               |✅|✅|🚧|❌|❌|
@@ -49,11 +49,15 @@ When something has all green checkmarks, it is completely done to initial releas
 
 # Current issues and priorities
 
-* Same for SFCS tools and supporting methods, for the same reasons.
 * Tools needs a rebuild, and once done the documentation will need to be updated.
 * Resources needs actual documentation, and to be fleshed out more fully in terms of classes.
 * Graph Builder may be out of sync with frontend
-
+* The backend needs another pass. I need to add a Token Trigger Autonoma that just detects and emits trigger states, and update the kernel modules to read if triggers are occuring from this directly. 
+* Also, the backend does not have documentation for the tags painting logic right now, or the TTDA integrations done/well thought through.
+* The backend could probably use a section in and of itself
+* The TTFA section needs to have a philosophy section discussing what to do as pieces interact and what the protocol is.
+* Various pieces of documentation are out
+* The decision has been made to use a [Escape] ... [EndEscape] system instead. The ZCP, documentation, and frontend system needs to evolve to reflect it.
 ## Next steps
 
 Mainly getting serialization and server systems in place. A few minor changes appear to be needed.
@@ -65,6 +69,11 @@ STEP: Serialization Tokenization Support:
 STEP: Tool Serialization Support
 * Rebuilt tooling frontend system to request tool usage by name, not by passing callbacks directly.
 * Rebuilt system to include this information in config.
+
+STEP: Fix flow control
+* Rebuild flow control/parsing/config to expect to see tools declared by name, rather than by function.
+* Rebuild system to properly interact with the new SZCP node system.
+* 
 
 ## Milestones/Brag list
 
