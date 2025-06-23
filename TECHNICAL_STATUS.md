@@ -78,4 +78,28 @@ STEP: Fix flow control
 ## Milestones/Brag list
 
 - All ZCP nodes complete with integration testing 6-21-2025.
-- 
+
+## PRoposals/actions
+
+# UDPL Parser Update Specification
+
+## Change Request: Update UDPL Parser Implementation to Match UDPL v1 Specification
+
+### What We're Changing
+The UDPL parser implementation is out of sync with the documented UDPL v1 specification. The parser was written for an earlier version of the spec and needs to be updated to handle the current escape token design and validation rules.
+
+### Where We're Changing
+1. **Config parsing module** (`config_parsing.py`) - escape token validation and missing tools field
+2. **Block parsing module** (`block_parsing.py`) - escape region handling in text parsing  
+3. **Zone parsing module** (`zone_parsing.py`) - flow control validation and resource type validation
+
+### Why We're Changing
+**Root Cause**: The parser implementation predates the current UDPL specification. Specifically:
+
+- **Escape tokens were redesigned** from single tokens to start/end pairs, but the parser still expects single strings
+- **Tools field was added** to the spec but never implemented in the parser
+- **Resource type validation** was tightened in the spec but the parser uses outdated defaults and no validation
+
+**Impact**: The parser cannot correctly parse valid UDPL v1 files and will accept invalid configurations that should be rejected per the specification.
+
+**Documentation-Driven Development Goal**: Bring the parser implementation into full compliance with the documented UDPL v1 specification so that the system works as documented.
