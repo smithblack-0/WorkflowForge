@@ -79,7 +79,7 @@ STEP: Fix flow control
 
 - All ZCP nodes complete with integration testing 6-21-2025.
 
-## PRoposals/actions
+## Proposals/actions
 
 # UDPL Parser Update Specification
 

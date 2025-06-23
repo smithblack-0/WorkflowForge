@@ -1,8 +1,6 @@
 # Workflow Forge
 
-**AI models that control their own prompt feeds, and the tools to interpret this**
-
-Workflow Forge intercepts and replaces tokens in the generation stream, allowing models to execute complex workflows by generating control tokens that instantly redirect their own execution path - all without ever leaving the GPU.
+Workflow forge is a project to allow compiled, remotely executed AI workflows, suitable for batch processing, mass sampling, flow control, and, if exceptionally successful, possibly even real-time processing.
 
 ## Project Status
 
