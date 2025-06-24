@@ -12,9 +12,7 @@ from src.workflow_forge.zcp.builder import GraphBuilderNode
 from ..parsing.config_parsing import Config
 from ..resources import AbstractResource
 from ..zcp.nodes import ZCPNode, RZCPNode
-from src.workflow_forge.backend.tag_converter import TagConverter
 from ..tokenizer_interface import TokenizerInterface
-from .tools import Toolbox, Tool
 from dataclasses import dataclass
 
 class ScopeException(Exception):

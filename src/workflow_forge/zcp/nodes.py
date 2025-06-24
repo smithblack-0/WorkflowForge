@@ -648,8 +648,9 @@ class SZCPNode:
         return nodes[0]
 
     @classmethod
-    def _create_unlinked_nodes(cls, data: Dict[int, Dict[str, Dict[str, Any]]]) -> Tuple[
-        Dict[int, 'SZCPNode'], Dict[int, Dict[str, Any]]]:
+    def _create_unlinked_nodes(cls,
+                               data: Dict[int, Dict[str, Dict[str, Any]]]
+                               ) -> Tuple[Dict[int, 'SZCPNode'], Dict[int, Dict[str, Any]]]:
         """
         Create SZCPNode objects from serialized data and extract link information.
 
