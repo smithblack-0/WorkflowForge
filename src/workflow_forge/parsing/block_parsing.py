@@ -215,6 +215,7 @@ def _validate_max_gen_tokens_field(max_gen_tokens: Any) -> None:
 def parse_text_into_zones(text: str, config: Config) -> List[Dict[str, str]]:
     """
     Parse block text into zone structures using regex to split on zone tokens.
+    Handles hierarchical escape regions by preprocessing them into placeholders.
 
     Args:
         text: Raw text from the block
@@ -226,69 +227,154 @@ def parse_text_into_zones(text: str, config: Config) -> List[Dict[str, str]]:
     Raises:
         BlockParseError: If text validation fails
     """
-    # Use regex to split on any special token.
-    #
-    # We have to account for the fact that escape tokens
-    # can escape zone edges too, or not, which makes this complex.
+    processed_text, escape_lookup = _escape_text(text, config)
+    zone_structures = _parse_zones_from_text(processed_text, config)
+    return _restore_escaped_content(zone_structures, escape_lookup)
 
-    pattern = "|".join(re.escape(token) for token in config.special_patterns)
+
+def _escape_text(text: str, config: Config) -> tuple[str, Dict[str, str]]:
+    """
+    Find and replace escaped regions with placeholders using sequential token processing.
+
+    Returns:
+        tuple: (processed_text_with_placeholders, escape_content_lookup)
+    """
+    escape_open = config.escape_patterns[0]
+    escape_close = config.escape_patterns[1]
+
+    # Create pattern for escape tokens only
+    pattern = "|".join(re.escape(token) for token in config.escape_patterns)
+
+    # Split into tokens and text pieces
     splits = re.split(f"({pattern})", text)
 
-    # Basic validation - need at least 3 splits for any zones to even be possible
+    if len(splits) < 2:
+        return text, {}  # No special tokens found
+
+    # Extract tokens and text pieces
+    # splits = [text0, token0, text1, token1, ..., textN]
+    tokens = splits[1::2]  # All the tokens
+    text_pieces = splits[0::2]  # All the text pieces
+
+    # Process tokens sequentially
+    substitutions = {}
+    stack_count = 0
+    substitution_num = 0
+    text_capturing = ""
+    cleaned_text = [text_pieces[0]]  # Start with first text piece
+
+    # Zip tokens with their following text pieces
+    text_after_tokens = text_pieces[1:]
+    for token, text_after in zip(tokens, text_after_tokens):
+
+        if token == escape_open:
+            stack_count += 1
+            if stack_count == 1:  # Just opened top-level escape
+                text_capturing = ""
+        elif token == escape_close:
+            if stack_count == 0:
+                raise BlockParseError("Found escape close token without matching open token")
+            stack_count -= 1
+            if stack_count == 0:  # Just closed top-level escape
+                placeholder = f"__ESCAPED_{substitution_num}__"
+                substitutions[placeholder] = text_capturing + config.escape_patterns[1]
+                cleaned_text.append(placeholder)
+                cleaned_text.append(text_after)
+                substitution_num += 1
+                continue  # Skip normal processing for this token
+
+        # If we're inside an escape region, accumulate content
+        if stack_count > 0:
+            text_capturing += token + text_after
+        else:
+            # Normal token - add to result
+            cleaned_text.append(token)
+            cleaned_text.append(text_after)
+
+    # Check for unclosed escapes
+    if stack_count > 0:
+        raise BlockParseError("Found unclosed escape regions")
+
+    processed_text = "".join(cleaned_text)
+    return processed_text, substitutions
+
+def _parse_zones_from_text(text: str, config: Config) -> List[Dict[str, str]]:
+    """
+    Parse zone structures from text that has escaped regions replaced with placeholders.
+    """
+
+    # Use regex to split on zone tokens only (no escape tokens since they're already processed)
+    zone_pattern = "|".join(re.escape(token) for token in config.zone_patterns)
+    splits = re.split(f"({zone_pattern})", text)
+
+    # Basic validation - need at least 3 splits for any zones to be possible
     if len(splits) < 3:
         raise BlockParseError("Text must contain at least one zone token")
 
-    # Split up into intial zone configuration.
-
+    # Split into contents and tokens
     contents = splits[0::2]
-    control_tokens = splits[1::2]
+    zone_tokens = splits[1::2]
 
-    # We split on all control tokens. However, some control other processes,
-    # that may have been escaped. We merge sections back together to get
-    # the actual active zones, and skip zone construction when
-    # escaped.
-
-    zone_contents = []
-    zone_tokens = []
-    is_first_zone_done = False
-    is_escaped = False
-    current_string = ""
-    for content, control_token in zip(contents, control_tokens):
-
-        if is_escaped is True:
-            current_string += content+control_token
-            is_escaped = False
-        else:
-            current_string += content + control_token
-            if control_token in config.zone_patterns:
-                if not is_first_zone_done:
-                    current_string = control_token
-                    is_first_zone_done = True
-                zone_contents.append(current_string)
-                zone_tokens.append(control_token)
-                current_string = ""
-            elif control_token == config.escape_token:
-                is_escaped = True
-    zone_contents.append(contents[-1])
-
+    # Validate zone token sequence
     if len(zone_tokens) < len(config.required_patterns):
         raise BlockParseError("Not enough zone tokens in block to meet required tokens")
     if len(zone_tokens) > len(config.zone_patterns):
         raise BlockParseError("Too many zone tokens in block - exceeds maximum allowed by config")
-    for i, (config_token, actual_token) in enumerate(zip(zone_tokens, config.zone_patterns)):
-        if config_token != actual_token:
-            raise BlockParseError(f"Zone token '{config_token}' does not match zone token '{actual_token}'"
-                                  f" at position {i}")
 
-    # Walk through and make zone structure results, containing the zone
-    # text, and the advance token that goes with it. Fill in anything missing
+    for i, (actual_token, expected_token) in enumerate(zip(zone_tokens, config.zone_patterns)):
+        if actual_token != expected_token:
+            raise BlockParseError(
+                f"Zone token '{actual_token}' does not match expected token '{expected_token}' at position {i}"
+            )
 
+    # Build zone structures following original logic
     zone_structures = []
-    for i, zone_token in enumerate(config.zone_patterns):
-        content = zone_contents[i] if i < len(zone_contents) else ""
-        zone_structures.append({"advance_token": zone_token, "zone_text": content})
+
+    # First zone gets just the first token
+    if zone_tokens:
+        zone_structures.append({
+            "advance_token": zone_tokens[0],
+            "zone_text": zone_tokens[0]
+        })
+
+    # Subsequent zones get text from after previous token up to and including current token
+    for i in range(1, len(config.zone_patterns)):
+        if i < len(zone_tokens):
+            # Text from after previous token + current token
+            zone_text = contents[i] + zone_tokens[i]
+        else:
+            # No token found, just remaining text
+            zone_text = contents[i] if i < len(contents) else ""
+
+        zone_structures.append({
+            "advance_token": config.zone_patterns[i],
+            "zone_text": zone_text
+        })
+
     return zone_structures
 
+
+def _restore_escaped_content(zone_structures: List[Dict[str, str]], escape_lookup: Dict[str, str]) -> List[
+    Dict[str, str]]:
+    """
+    Replace placeholders in zone text with their original escaped content.
+    Returns new zone structures with escaped content restored.
+    """
+    restored_structures = []
+
+    for zone_struct in zone_structures:
+        zone_text = zone_struct["zone_text"]
+
+        # Replace all placeholders with their escaped content
+        for placeholder, escaped_content in escape_lookup.items():
+            zone_text = zone_text.replace(placeholder, escaped_content)
+
+        # Create new structure with restored text
+        restored_struct = zone_struct.copy()
+        restored_struct["zone_text"] = zone_text
+        restored_structures.append(restored_struct)
+
+    return restored_structures
 
 ## Tags handling, and replication of tagging so we repeat zone configs
 #
