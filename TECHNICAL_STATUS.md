@@ -38,7 +38,7 @@ When something has all green checkmarks, it is completely done to initial releas
 | ZCP-Architecture               |✅|✅|✅|✅|✅|
 | ZCP-Nodes                      |✅|✅|✅|✅|✅|
 | ZCP-GraphBuilder               |✅|✅|✅|❌|❌|
-| ZCP-Serialization              |✅|✅|✅|❌|❌|
+| ZCP-Serialization              |✅|✅|✅|✅|✅|
 | Backend - Compiling/Flattening |✅|❌|❌|❌|❌|
 | Backend - MOA                  |✅|❌|❌|❌|❌|
 | Backend - Support              |✅|❌|❌|❌|❌|

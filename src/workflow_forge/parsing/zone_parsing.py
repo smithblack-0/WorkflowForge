@@ -4,13 +4,14 @@ UDPL Zone Parser
 The zone parser is responsible for converting individual ZoneInfo structures into ZCPNode objects.
 This is the final stage of the UDPL parsing pipeline that handles:
 - Flow control token validation
-- Placeholder syntax validation  
+- Placeholder syntax validation
 - Resource binding validation
 - zcp node creation with proper callbacks
 """
 
 import re
 import string
+import warnings
 from typing import Dict, Any, List, Optional, Callable
 from ..zcp.nodes import ZCPNode
 from ..resources import AbstractResource
@@ -88,12 +89,83 @@ def validate_flow_control_safety(zone_text: str, config: Config, zone_info: Zone
     # Check if control token is present
     if config.control_pattern in zone_text:
         # Check if escape token is also present
-        if config.escape_token not in zone_text:
-            raise ZoneParseError(
+        escaped_text, _ = _escape_text(zone_text, config)
+        if config.control_pattern in escaped_text:
+            msg = (
                 f"In block {zone_info.block_index} of sequence '{zone_info.sequence_name}', "
-                f"zone was detected with '{config.control_pattern}' but no '{config.escape_token}' token. "
+                f"zone was detected with '{config.control_pattern}' but no '{config.escape_patterns}' tokens. "
                 f"Do you mean to teacher-force flow control? If so, this will trigger immediate flow control during prompting."
             )
+            warnings.warn(msg, UserWarning)
+
+
+
+
+def _escape_text(text: str, config: Config) -> tuple[str, Dict[str, str]]:
+    """
+    Find and replace escaped regions with placeholders using sequential token processing.
+
+    Returns:
+        tuple: (processed_text_with_placeholders, escape_content_lookup)
+    """
+    escape_open = config.escape_patterns[0]
+    escape_close = config.escape_patterns[1]
+
+    # Create pattern for escape tokens only
+    pattern = "|".join(re.escape(token) for token in config.escape_patterns)
+
+    # Split into tokens and text pieces
+    splits = re.split(f"({pattern})", text)
+
+    if len(splits) < 2:
+        return text, {}  # No special tokens found
+
+    # Extract tokens and text pieces
+    # splits = [text0, token0, text1, token1, ..., textN]
+    tokens = splits[1::2]  # All the tokens
+    text_pieces = splits[0::2]  # All the text pieces
+
+    # Process tokens sequentially
+    substitutions = {}
+    stack_count = 0
+    substitution_num = 0
+    text_capturing = ""
+    cleaned_text = [text_pieces[0]]  # Start with first text piece
+
+    # Zip tokens with their following text pieces
+    text_after_tokens = text_pieces[1:]
+    for token, text_after in zip(tokens, text_after_tokens):
+
+        if token == escape_open:
+            stack_count += 1
+            if stack_count == 1:  # Just opened top-level escape
+                text_capturing = ""
+        elif token == escape_close:
+            if stack_count == 0:
+                raise ZoneParseError("Found escape close token without matching open token")
+            stack_count -= 1
+            if stack_count == 0:  # Just closed top-level escape
+                placeholder = f"__ESCAPED_{substitution_num}__"
+                substitutions[placeholder] = text_capturing + config.escape_patterns[1]
+                cleaned_text.append(placeholder)
+                cleaned_text.append(text_after)
+                substitution_num += 1
+                continue  # Skip normal processing for this token
+
+        # If we're inside an escape region, accumulate content
+        if stack_count > 0:
+            text_capturing += token + text_after
+        else:
+            # Normal token - add to result
+            cleaned_text.append(token)
+            cleaned_text.append(text_after)
+
+    # Check for unclosed escapes
+    if stack_count > 0:
+        raise ZoneParseError("Found unclosed escape regions")
+
+    processed_text = "".join(cleaned_text)
+    return processed_text, substitutions
 
 
 def extract_placeholders(zone_text: str) -> List[str]:

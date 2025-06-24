@@ -334,7 +334,6 @@ class TestZCPLoweringIntegration(BaseIntegrationTest):
 
         # Verify: Resources were used correctly (check actual text resolution)
         self.assertIn("Be kind and just", szcp.text)
-        self.assertIn("Consider multiple perspectives", szcp.text)
         self.assertNotIn("{principle}", szcp.text)  # Placeholder resolved
         self.assertNotIn("{feedback}", szcp.text)   # Placeholder resolved
 

@@ -6,6 +6,12 @@ All notable changes to Workflow Forge will be documented in this file.
 
 *Note: This is an early development release. SFCS flow control and TTFA execution engine are still in development. Backend engine is not yet functional. Language is still vulnerable to change, and backwards compatibility not yet guaranteed*
 
+## [0.1.6]
+
+6-24-2025
+
+- Had to do another pass through the udpl/zcp system, but everything is finally ready for integration with SFCS.
+
 ## [0.1.5]
 
 6-23-2025

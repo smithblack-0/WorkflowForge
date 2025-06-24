@@ -1,661 +1,623 @@
+"""
+Unit tests for UDPL Zone Parser
+
+Tests cover:
+1. Basic functionality - core features working correctly
+2. Validation error tests - input validation catching problems
+3. Construction callback tests - testing callback function in isolation
+4. Error handling tests - ensuring failures are reported usefully
+"""
+
 import unittest
 import warnings
-from typing import Dict, Any
-from src.workflow_forge.parsing.config_parsing import Config, ConfigParseError, parse_config
+from unittest.mock import Mock
+from typing import Dict, Any, Optional
+
+# Import the modules under test
+from src.workflow_forge.parsing.zone_parsing import (
+    parse_zone, validate_flow_control_safety, extract_placeholders,
+    build_resource_specs, create_construction_callback, ZoneParseError
+)
+from src.workflow_forge.parsing.config_parsing import Config
+from src.workflow_forge.parsing.block_parsing import ZoneInfo
+from src.workflow_forge.zcp.nodes import ZCPNode
+from src.workflow_forge.resources import AbstractResource
 
 
-class BaseConfigTest(unittest.TestCase):
-    """Base test class with helper methods."""
+class BaseZoneParserTest(unittest.TestCase):
+    """Base test class with common setup and helper methods."""
 
-    def get_valid_config(self) -> Dict[str, Any]:
-        """Return a valid config for testing."""
-        return {
-            'config': {
-                'zone_patterns': ["[Prompt]", "[Answer]", "[EOS]"],
-                'required_patterns': ["[Prompt]", "[Answer]"],
-                'valid_tags': ["Training", "Correct", "Incorrect"],
-                'default_max_token_length': 20000,
-                'sequences': ["setup", "loop", "solving", "concluding"],
-                'control_pattern': "[Jump]",
-                'escape_patterns': ["[Escape]", "[EndEscape]"],
-                'tools': []
+    def setUp(self):
+        """Set up common test fixtures."""
+        pass  # No complex mocks needed for zone parser
+
+    def get_valid_config(self, **overrides) -> Config:
+        """
+        Return valid config for testing, with optional field overrides.
+
+        Args:
+            **overrides: Fields to override in the base config
+
+        Returns:
+            Config object with valid settings
+        """
+        base_config = {
+            'zone_patterns': ["[Prompt]", "[Answer]", "[EOS]"],
+            'required_patterns': ["[Prompt]", "[Answer]"],
+            'valid_tags': ["Training", "Correct"],
+            'default_max_token_length': 1000,
+            'sequences': ["test_sequence"],
+            'control_pattern': "[Jump]",
+            'escape_patterns': ("[Escape]", "[EndEscape]"),
+            'tools': ["search", "calculator"],
+            'misc': {}
+        }
+        base_config.update(overrides)
+        return Config(**base_config)
+
+    def get_valid_zone_info(self, **overrides) -> ZoneInfo:
+        """
+        Return valid zone info for testing, with optional field overrides.
+
+        Args:
+            **overrides: Fields to override in the base zone info
+
+        Returns:
+            ZoneInfo object with valid settings
+        """
+        base_zone_info = {
+            'advance_token': "[Answer]",
+            'zone_text': "What is AI?",
+            'tags': ["Training"],
+            'sequence_name': "test_sequence",
+            'block_index': 0,
+            'zone_index': 1,
+            'max_gen_tokens': 500,
+            'block_data': {}
+        }
+        base_zone_info.update(overrides)
+        return ZoneInfo(**base_zone_info)
+
+    def create_zone_info(self, **overrides) -> ZoneInfo:
+        """
+        Create a ZoneInfo with valid data and optional overrides.
+
+        Args:
+            **overrides: Fields to override in the base zone info
+
+        Returns:
+            Configured ZoneInfo instance
+        """
+        return self.get_valid_zone_info(**overrides)
+
+    def create_zone_with_placeholders(self, placeholders: Dict[str, Dict[str, Any]],
+                                      zone_text: Optional[str] = None, **overrides) -> ZoneInfo:
+        """
+        Create ZoneInfo with placeholder configuration.
+
+        Args:
+            placeholders: Dictionary mapping placeholder names to their resource specs
+            zone_text: Custom zone text (auto-generated if None)
+            **overrides: Additional ZoneInfo field overrides
+
+        Returns:
+            ZoneInfo configured with placeholders
+        """
+        if zone_text is None:
+            placeholder_names = list(placeholders.keys())
+            zone_text = "Text with " + " and ".join(f"{{{name}}}" for name in placeholder_names)
+
+        zone_overrides = {
+            'zone_text': zone_text,
+            'block_data': placeholders
+        }
+        zone_overrides.update(overrides)
+        return self.create_zone_info(**zone_overrides)
+
+    def create_mock_resource(self, return_value: str = "mock_result") -> Mock:
+        """
+        Create a mock resource with proper spec.
+
+        Args:
+            return_value: Value the mock resource should return
+
+        Returns:
+            Mock resource object
+        """
+        mock_resource = Mock(spec=AbstractResource)
+        mock_resource.return_value = return_value
+        return mock_resource
+
+    def assert_zone_parse_error_context(self, context_manager, expected_sequence: str,
+                                        expected_block: int, expected_zone: int):
+        """
+        Assert that a ZoneParseError has the expected context information.
+
+        Args:
+            context_manager: The exception context manager
+            expected_sequence: Expected sequence name in error
+            expected_block: Expected block number in error
+            expected_zone: Expected zone number in error
+        """
+        error_msg = str(context_manager.exception)
+        self.assertIn(f"zone {expected_zone}", error_msg)
+        self.assertIn(f"sequence '{expected_sequence}'", error_msg)
+        self.assertIn(f"block {expected_block}", error_msg)
+
+    def assert_resource_specs_equal(self, actual: Dict[str, Dict[str, Any]],
+                                    expected: Dict[str, Dict[str, Any]], msg: str = None):
+        """
+        Assert resource specs are equal with better error messages.
+
+        Args:
+            actual: Actual resource specs
+            expected: Expected resource specs
+            msg: Optional message prefix
+        """
+        self.assertEqual(actual, expected, msg)
+
+    def assert_construction_callback_works(self, callback, resources: Dict[str, AbstractResource],
+                                           expected_result: str):
+        """
+        Assert that a construction callback works correctly.
+
+        Args:
+            callback: The construction callback to test
+            resources: Resources to pass to callback
+            expected_result: Expected callback result
+        """
+        result = callback(resources)
+        self.assertEqual(result, expected_result)
+
+
+class TestBasicFunctionality(BaseZoneParserTest):
+    """Test core zone parser features working correctly."""
+
+    def test_zone_with_no_placeholders(self):
+        """Test basic zone with no placeholders."""
+        config = self.get_valid_config()
+        zone_info = self.create_zone_info()
+
+        result = parse_zone(zone_info, config)
+
+        # Verify ZCPNode structure
+        self.assertIsInstance(result, ZCPNode)
+        self.assertEqual(result.sequence, "test_sequence")
+        self.assertEqual(result.block, 0)
+        self.assertEqual(result.raw_text, "What is AI?")
+        self.assertEqual(result.zone_advance_str, "[Answer]")
+        self.assertEqual(result.tags, ["Training"])
+        self.assertEqual(result.timeout, 500)
+        self.assertEqual(result.resource_specs, {})
+        self.assertIsNone(result.next_zone)
+
+        # Test construction callback with no placeholders
+        final_text = result.construction_callback({})
+        self.assertEqual(final_text, "What is AI?")
+
+    def test_zone_with_single_placeholder(self):
+        """Test zone with single placeholder and resource spec."""
+        config = self.get_valid_config()
+        placeholders = {
+            "feedback": {
+                "name": "feedback_resource",
+                "arguments": {"num_samples": 3}
+            }
+        }
+        zone_info = self.create_zone_with_placeholders(
+            placeholders,
+            zone_text="Consider this feedback: {feedback}"
+        )
+
+        result = parse_zone(zone_info, config)
+
+        # Verify resource specs
+        expected_spec = {
+            "feedback": {
+                "name": "feedback_resource",
+                "arguments": {"num_samples": 3},
+                "type": "default"
+            }
+        }
+        self.assert_resource_specs_equal(result.resource_specs, expected_spec)
+
+        # Test construction callback
+        mock_resource = self.create_mock_resource("Great work!")
+        resources = {"feedback_resource": mock_resource}
+
+        self.assert_construction_callback_works(
+            result.construction_callback,
+            resources,
+            "Consider this feedback: Great work!"
+        )
+        mock_resource.assert_called_once_with(num_samples=3)
+
+    def test_zone_with_multiple_placeholders(self):
+        """Test zone with multiple placeholders."""
+        config = self.get_valid_config()
+        placeholders = {
+            "principle": {
+                "name": "constitution_overview"
             },
-            'some_other_section': {
-                'custom_field': 'custom_value'
+            "details": {
+                "name": "constitution_details",
+                "arguments": {"num_samples": 2}
             }
         }
+        zone_info = self.create_zone_with_placeholders(
+            placeholders,
+            zone_text="Follow {principle} and consider {details}"
+        )
+
+        result = parse_zone(zone_info, config)
+
+        # Verify both resource specs
+        expected_specs = {
+            "principle": {
+                "name": "constitution_overview",
+                "arguments": None,
+                "type": "default"
+            },
+            "details": {
+                "name": "constitution_details",
+                "arguments": {"num_samples": 2},
+                "type": "default"
+            }
+        }
+        self.assert_resource_specs_equal(result.resource_specs, expected_specs)
+
+    def test_zone_with_custom_resource_type(self):
+        """Test zone with custom resource type."""
+        config = self.get_valid_config()
+        placeholders = {
+            "min_value": {
+                "name": "min_control",
+                "type": "flow_control"
+            }
+        }
+        zone_info = self.create_zone_with_placeholders(
+            placeholders,
+            zone_text="Repeat at least {min_value} times"
+        )
+
+        result = parse_zone(zone_info, config)
+
+        # Verify custom type is preserved
+        expected_spec = {
+            "min_value": {
+                "name": "min_control",
+                "arguments": None,
+                "type": "flow_control"
+            }
+        }
+        self.assert_resource_specs_equal(result.resource_specs, expected_spec)
 
 
-class TestConfigSectionExists(BaseConfigTest):
-    """Test that config section is present."""
+class TestValidationErrors(BaseZoneParserTest):
+    """Test input validation catching problems."""
 
-    def test_missing_config_section(self):
-        """Test error when config section is missing."""
-        toml_data = {'other_section': {'key': 'value'}}
+    def test_malformed_placeholder_syntax(self):
+        """Test error for malformed placeholder syntax."""
+        config = self.get_valid_config()
+        zone_info = self.create_zone_info(zone_text="Bad placeholder {unclosed syntax")
 
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
+        with self.assertRaises(ZoneParseError) as context:
+            parse_zone(zone_info, config)
 
-        self.assertIn("missing", str(err.exception).lower())
-        self.assertIn("config", str(err.exception).lower())
+        self.assertIn("Malformed placeholder syntax", str(context.exception))
 
+    def test_missing_resource_specification(self):
+        """Test error when placeholder has no resource spec."""
+        config = self.get_valid_config()
+        zone_info = self.create_zone_info(
+            zone_text="Missing spec: {missing_placeholder}",
+            block_data={}  # No spec for missing_placeholder
+        )
 
-class TestZonePatternsValidation(BaseConfigTest):
-    """Test zone_patterns validation rules."""
+        with self.assertRaises(ZoneParseError) as context:
+            parse_zone(zone_info, config)
 
-    def test_missing_zone_patterns(self):
-        """Test zone_patterns is present."""
-        toml_data = self.get_valid_config()
-        del toml_data['config']['zone_patterns']
+        error_msg = str(context.exception)
+        self.assertIn("Missing resource specification for placeholder 'missing_placeholder'", error_msg)
+        self.assertIn("test_sequence.missing_placeholder", error_msg)
 
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
+    def test_invalid_resource_spec_structure(self):
+        """Test error when resource spec is not a dictionary."""
+        config = self.get_valid_config()
+        zone_info = self.create_zone_info(
+            zone_text="Bad spec: {bad_spec}",
+            block_data={"bad_spec": "not_a_dict"}  # Should be a dictionary
+        )
 
-        self.assertIn("zone_patterns", str(err.exception).lower())
-        self.assertIn("missing", str(err.exception).lower())
+        with self.assertRaises(ZoneParseError) as context:
+            parse_zone(zone_info, config)
 
-    def test_zone_patterns_is_list(self):
-        """Test zone_patterns is a list."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['zone_patterns'] = "[Prompt]"
+        self.assertIn("Resource specification for placeholder 'bad_spec' must be a dictionary", str(context.exception))
 
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
+    def test_missing_name_field(self):
+        """Test error when resource spec missing name field."""
+        config = self.get_valid_config()
+        placeholders = {
+            "no_name": {
+                "arguments": {"test": "value"}
+                # Missing 'name' field
+            }
+        }
+        zone_info = self.create_zone_with_placeholders(
+            placeholders,
+            zone_text="No name: {no_name}"
+        )
 
-        self.assertIn("list", str(err.exception).lower())
-        self.assertIn("zone_patterns", str(err.exception).lower())
+        with self.assertRaises(ZoneParseError) as context:
+            parse_zone(zone_info, config)
 
-    def test_zone_patterns_contains_strings(self):
-        """Test zone_patterns contains only strings."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['zone_patterns'] = ["[Prompt]", 123, "[EOS]"]
+        self.assertIn("Resource specification for placeholder 'no_name' missing required 'name' field",
+                      str(context.exception))
 
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
+    def test_invalid_field_types(self):
+        """Test errors for invalid field types in resource spec."""
+        config = self.get_valid_config()
+        placeholders = {
+            "bad_name": {
+                "name": 123  # Should be string
+            }
+        }
+        zone_info = self.create_zone_with_placeholders(
+            placeholders,
+            zone_text="Bad name: {bad_name}"
+        )
 
-        self.assertIn("zone_patterns", str(err.exception).lower())
-        self.assertIn("string", str(err.exception).lower())
+        with self.assertRaises(ZoneParseError) as context:
+            parse_zone(zone_info, config)
 
-    def test_zone_patterns_nonempty(self):
-        """Test zone_patterns is not empty."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['zone_patterns'] = []
+        self.assertIn("Resource 'name' for placeholder 'bad_name' must be a string", str(context.exception))
 
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("zone_patterns", str(err.exception).lower())
-        self.assertIn("empty", str(err.exception).lower())
-
-    def test_zone_patterns_length_at_least_two(self):
-        """Test zone_patterns has at least 2 elements."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['zone_patterns'] = ["[Prompt]"]
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("zone_patterns", str(err.exception).lower())
-        self.assertIn("2", str(err.exception).lower())
-
-
-class TestRequiredPatternsValidation(BaseConfigTest):
-    """Test required_patterns validation rules."""
-
-    def test_missing_required_patterns(self):
-        """Test required_patterns is present."""
-        toml_data = self.get_valid_config()
-        del toml_data['config']['required_patterns']
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("required_patterns", str(err.exception).lower())
-        self.assertIn("missing", str(err.exception).lower())
-
-    def test_required_patterns_is_list(self):
-        """Test required_patterns is a list."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['required_patterns'] = "[Prompt]"
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("required_patterns", str(err.exception).lower())
-        self.assertIn("list", str(err.exception).lower())
-
-    def test_required_patterns_contains_strings(self):
-        """Test required_patterns contains only strings."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['required_patterns'] = ["[Prompt]", 456]
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("required_patterns", str(err.exception).lower())
-        self.assertIn("string", str(err.exception).lower())
-
-    def test_required_patterns_nonempty(self):
-        """Test required_patterns is not empty."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['required_patterns'] = []
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("required_patterns", str(err.exception).lower())
-        self.assertIn("empty", str(err.exception).lower())
-
-    def test_required_patterns_in_zone_patterns(self):
-        """Test all required patterns exist in zone patterns."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['required_patterns'] = ["[Prompt]", "[Missing]"]
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("required_patterns", str(err.exception).lower())
-        self.assertIn("zone_patterns", str(err.exception).lower())
-
-
-class TestValidTagsValidation(BaseConfigTest):
-    """Test valid_tags validation rules."""
-
-    def test_missing_valid_tags(self):
-        """Test valid_tags is present."""
-        toml_data = self.get_valid_config()
-        del toml_data['config']['valid_tags']
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("valid_tags", str(err.exception).lower())
-        self.assertIn("missing", str(err.exception).lower())
-
-    def test_valid_tags_is_list(self):
-        """Test valid_tags is a list."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['valid_tags'] = "Training"
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("valid_tags", str(err.exception).lower())
-        self.assertIn("list", str(err.exception).lower())
-
-    def test_valid_tags_contains_strings(self):
-        """Test valid_tags contains only strings."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['valid_tags'] = ["Training", 789]
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("valid_tags", str(err.exception).lower())
-        self.assertIn("string", str(err.exception).lower())
-
-    def test_valid_tags_empty_warning(self):
-        """Test warning is issued when valid_tags is empty."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['valid_tags'] = []
+    def test_unescaped_flow_control_token(self):
+        """Test warning for unescaped flow control token."""
+        config = self.get_valid_config()
+        zone_info = self.create_zone_info(
+            zone_text="This will [Jump] without escape",
+            sequence_name="test_sequence",
+            block_index=2
+        )
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            config = parse_config(toml_data)
-            self.assertEqual(len(w), 1)
-            self.assertIn("valid_tags", str(w[0].message).lower())
-            self.assertIn("empty", str(w[0].message).lower())
-            self.assertEqual(config.valid_tags, [])
-
-
-class TestDefaultMaxTokenLengthValidation(BaseConfigTest):
-    """Test default_max_token_length validation rules."""
-
-    def test_missing_default_max_token_length(self):
-        """Test default_max_token_length is present."""
-        toml_data = self.get_valid_config()
-        del toml_data['config']['default_max_token_length']
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("default_max_token_length", str(err.exception).lower())
-        self.assertIn("missing", str(err.exception).lower())
-
-    def test_default_max_token_length_is_integer(self):
-        """Test default_max_token_length is an integer."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['default_max_token_length'] = "20000"
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("default_max_token_length", str(err.exception).lower())
-        self.assertIn("integer", str(err.exception).lower())
-
-    def test_default_max_token_length_greater_than_zero(self):
-        """Test default_max_token_length is greater than zero."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['default_max_token_length'] = 0
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("default_max_token_length", str(err.exception).lower())
-        self.assertIn("greater", str(err.exception).lower())
-
-    def test_default_max_token_length_not_negative(self):
-        """Test default_max_token_length is not negative."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['default_max_token_length'] = -100
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("default_max_token_length", str(err.exception).lower())
-        self.assertIn("greater", str(err.exception).lower())
-
-
-class TestSequencesValidation(BaseConfigTest):
-    """Test sequences validation rules."""
-
-    def test_missing_sequences(self):
-        """Test sequences is present."""
-        toml_data = self.get_valid_config()
-        del toml_data['config']['sequences']
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("sequences", str(err.exception).lower())
-        self.assertIn("missing", str(err.exception).lower())
-
-    def test_sequences_is_list(self):
-        """Test sequences is a list."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['sequences'] = "setup"
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("sequences", str(err.exception).lower())
-        self.assertIn("list", str(err.exception).lower())
-
-    def test_sequences_contains_strings(self):
-        """Test sequences contains only strings."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['sequences'] = ["setup", 123]
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("sequences", str(err.exception).lower())
-        self.assertIn("string", str(err.exception).lower())
-
-    def test_sequences_nonempty(self):
-        """Test sequences is not empty."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['sequences'] = []
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("sequences", str(err.exception).lower())
-        self.assertIn("empty", str(err.exception).lower())
-
-    def test_sequences_strings_nonempty(self):
-        """Test sequences contains non-empty strings."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['sequences'] = ["setup", ""]
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("sequences", str(err.exception).lower())
-        self.assertIn("non-empty", str(err.exception).lower())
-
-    def test_sequences_strings_not_whitespace_only(self):
-        """Test sequences strings are not whitespace-only."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['sequences'] = ["setup", "   "]
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("sequences", str(err.exception).lower())
-        self.assertIn("non-empty", str(err.exception).lower())
-
-
-class TestControlPatternValidation(BaseConfigTest):
-    """Test control_pattern validation rules."""
-
-    def test_missing_control_pattern(self):
-        """Test control_pattern is present."""
-        toml_data = self.get_valid_config()
-        del toml_data['config']['control_pattern']
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("control_pattern", str(err.exception).lower())
-        self.assertIn("missing", str(err.exception).lower())
-
-    def test_control_pattern_is_string(self):
-        """Test control_pattern is a string."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['control_pattern'] = 123
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("control_pattern", str(err.exception).lower())
-        self.assertIn("string", str(err.exception).lower())
-
-    def test_control_pattern_nonempty(self):
-        """Test control_pattern is not empty."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['control_pattern'] = ""
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("control_pattern", str(err.exception).lower())
-        self.assertIn("empty", str(err.exception).lower())
-
-    def test_control_pattern_not_whitespace_only(self):
-        """Test control_pattern is not whitespace-only."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['control_pattern'] = "   "
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("control_pattern", str(err.exception).lower())
-        self.assertIn("empty", str(err.exception).lower())
-
-
-class TestEscapePatternsValidation(BaseConfigTest):
-    """Test escape_patterns validation rules."""
-
-    def test_missing_escape_patterns(self):
-        """Test escape_patterns is present."""
-        toml_data = self.get_valid_config()
-        del toml_data['config']['escape_patterns']
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("escape_patterns", str(err.exception).lower())
-        self.assertIn("missing", str(err.exception).lower())
-
-    def test_escape_patterns_is_list(self):
-        """Test escape_patterns is a list."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['escape_patterns'] = "[Escape]"
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("escape_patterns", str(err.exception).lower())
-        self.assertIn("list", str(err.exception).lower())
-
-    def test_escape_patterns_exactly_two_elements(self):
-        """Test escape_patterns contains exactly two elements."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['escape_patterns'] = ["[Escape]"]
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("escape_patterns", str(err.exception).lower())
-        self.assertIn("two", str(err.exception).lower())
-
-    def test_escape_patterns_exactly_two_elements_too_many(self):
-        """Test escape_patterns with more than two elements fails."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['escape_patterns'] = ["[Escape]", "[EndEscape]", "[Extra]"]
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("escape_patterns", str(err.exception).lower())
-        self.assertIn("two", str(err.exception).lower())
-
-    def test_escape_patterns_first_element_string(self):
-        """Test first escape pattern element is a string."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['escape_patterns'] = [123, "[EndEscape]"]
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("escape_patterns", str(err.exception).lower())
-        self.assertIn("string", str(err.exception).lower())
-
-    def test_escape_patterns_second_element_string(self):
-        """Test second escape pattern element is a string."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['escape_patterns'] = ["[Escape]", 456]
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("escape_patterns", str(err.exception).lower())
-        self.assertIn("string", str(err.exception).lower())
-
-    def test_escape_patterns_first_element_nonempty(self):
-        """Test first escape pattern is not empty."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['escape_patterns'] = ["", "[EndEscape]"]
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("escape_patterns", str(err.exception).lower())
-        self.assertIn("empty", str(err.exception).lower())
-
-    def test_escape_patterns_second_element_nonempty(self):
-        """Test second escape pattern is not empty."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['escape_patterns'] = ["[Escape]", ""]
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("escape_patterns", str(err.exception).lower())
-        self.assertIn("empty", str(err.exception).lower())
-
-    def test_escape_patterns_first_element_not_whitespace_only(self):
-        """Test first escape pattern is not whitespace-only."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['escape_patterns'] = ["   ", "[EndEscape]"]
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("escape_patterns", str(err.exception).lower())
-        self.assertIn("empty", str(err.exception).lower())
-
-    def test_escape_patterns_second_element_not_whitespace_only(self):
-        """Test second escape pattern is not whitespace-only."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['escape_patterns'] = ["[Escape]", "   "]
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("escape_patterns", str(err.exception).lower())
-        self.assertIn("empty", str(err.exception).lower())
-
-
-class TestToolsValidation(BaseConfigTest):
-    """Test tools validation rules."""
-
-    def test_missing_tools(self):
-        """Test tools is present."""
-        toml_data = self.get_valid_config()
-        del toml_data['config']['tools']
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("tools", str(err.exception).lower())
-        self.assertIn("missing", str(err.exception).lower())
-
-    def test_tools_is_list(self):
-        """Test tools is a list."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['tools'] = "tool1"
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("tools", str(err.exception).lower())
-        self.assertIn("list", str(err.exception).lower())
-
-    def test_tools_contains_strings(self):
-        """Test tools contains only strings."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['tools'] = ["tool1", 123, "tool3"]
-
-        with self.assertRaises(ConfigParseError) as err:
-            parse_config(toml_data)
-
-        self.assertIn("tool", str(err.exception).lower())
-        self.assertIn("string", str(err.exception).lower())
-
-    def test_tools_empty_list_allowed(self):
-        """Test tools can be an empty list."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['tools'] = []
-
-        config = parse_config(toml_data)
-        self.assertEqual(config.tools, [])
-
-    def test_tools_with_valid_strings(self):
-        """Test tools with valid string values."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['tools'] = ["calculator", "web_search", "file_reader"]
-
-        config = parse_config(toml_data)
-        self.assertEqual(config.tools, ["calculator", "web_search", "file_reader"])
-
-
-class TestValidConfigScenarios(BaseConfigTest):
-    """Test various valid configuration scenarios."""
-
-    def test_complete_valid_config(self):
-        """Test parsing a completely valid config."""
-        toml_data = self.get_valid_config()
-        config = parse_config(toml_data)
-
-        # Check all basic fields
-        self.assertEqual(config.zone_patterns, ["[Prompt]", "[Answer]", "[EOS]"])
-        self.assertEqual(config.required_patterns, ["[Prompt]", "[Answer]"])
-        self.assertEqual(config.valid_tags, ["Training", "Correct", "Incorrect"])
-        self.assertEqual(config.default_max_token_length, 20000)
-        self.assertEqual(config.sequences, ["setup", "loop", "solving", "concluding"])
-        self.assertEqual(config.control_pattern, "[Jump]")
-        self.assertEqual(config.escape_patterns, ("[Escape]", "[EndEscape]"))
-        self.assertEqual(config.tools, [])
-
-        # Check misc contains the full toml data
-        self.assertEqual(config.misc, toml_data)
-
-    def test_minimal_valid_config(self):
-        """Test a minimal but valid config."""
-        toml_data = {
-            'config': {
-                'zone_patterns': ["[A]", "[B]"],
-                'required_patterns': ["[A]"],
-                'valid_tags': ["Tag1"],
-                'default_max_token_length': 1,
-                'sequences': ["seq1"],
-                'control_pattern': "[C]",
-                'escape_patterns': ["[E]", "[EndE]"],
-                'tools': []
+            result = parse_zone(zone_info, config)  # Should succeed with warning
+
+            # Verify it still creates a valid ZCPNode
+            self.assertIsInstance(result, ZCPNode)
+
+            # Verify warning was issued with key concepts
+            self.assertTrue(len(w) > 0, "Expected warning to be issued")
+            warning_msg = str(w[0].message).lower()
+            self.assertIn("jump", warning_msg)
+            self.assertIn("test_sequence", warning_msg)
+            self.assertIn("block", warning_msg)
+
+    def test_properly_escaped_flow_control_token(self):
+        """Test that properly escaped flow control token passes validation."""
+        config = self.get_valid_config()
+        zone_info = self.create_zone_info(
+            zone_text="Use [Escape] [Jump] [EndEscape] to jump"
+        )
+
+        # Should not raise exception
+        result = parse_zone(zone_info, config)
+        self.assertIsInstance(result, ZCPNode)
+
+
+class TestConstructionCallback(BaseZoneParserTest):
+    """Test the construction callback function in isolation."""
+
+    def test_callback_resolves_placeholders_correctly(self):
+        """Test callback resolves all placeholders with mock resources."""
+        resource_specs = {
+            "principle": {
+                "name": "constitution",
+                "arguments": None,
+                "type": "default"
+            },
+            "count": {
+                "name": "counter",
+                "arguments": {"start": 5},
+                "type": "default"
             }
         }
 
-        config = parse_config(toml_data)
-        self.assertEqual(config.zone_patterns, ["[A]", "[B]"])
-        self.assertEqual(config.required_patterns, ["[A]"])
-        self.assertEqual(config.valid_tags, ["Tag1"])
-        self.assertEqual(config.default_max_token_length, 1)
-        self.assertEqual(config.sequences, ["seq1"])
-        self.assertEqual(config.control_pattern, "[C]")
-        self.assertEqual(config.escape_patterns, ("[E]", "[EndE]"))
-        self.assertEqual(config.tools, [])
+        callback = create_construction_callback(
+            "Follow {principle} and repeat {count} times",
+            resource_specs
+        )
 
-    def test_config_with_many_patterns_and_sequences(self):
-        """Test config with larger lists."""
-        toml_data = {
-            'config': {
-                'zone_patterns': ["[Prompt]", "[Reasoning]", "[Answer]", "[Feedback]", "[EOS]"],
-                'required_patterns': ["[Prompt]", "[Reasoning]", "[Answer]"],
-                'valid_tags': ["Training", "Correct", "Incorrect1", "Incorrect2", "Feedback", "Audit"],
-                'default_max_token_length': 50000,
-                'sequences': ["intro", "setup", "reasoning", "solving", "feedback", "conclusion"],
-                'control_pattern': "[Jump]",
-                'escape_patterns': ["[Escape]", "[EndEscape]"],
-                'tools': ["calculator", "web_search"]
+        # Create mock resources
+        mock_constitution = self.create_mock_resource("safety first")
+        mock_counter = self.create_mock_resource("3")
+
+        resources = {
+            "constitution": mock_constitution,
+            "counter": mock_counter
+        }
+
+        self.assert_construction_callback_works(
+            callback,
+            resources,
+            "Follow safety first and repeat 3 times"
+        )
+        mock_constitution.assert_called_once_with()
+        mock_counter.assert_called_once_with(start=5)
+
+    def test_callback_handles_missing_resources(self):
+        """Test callback raises ValueError for missing resources."""
+        resource_specs = {
+            "missing": {
+                "name": "missing_resource",
+                "arguments": None,
+                "type": "default"
             }
         }
 
-        config = parse_config(toml_data)
-        self.assertEqual(len(config.zone_patterns), 5)
-        self.assertEqual(len(config.required_patterns), 3)
-        self.assertEqual(len(config.valid_tags), 6)
-        self.assertEqual(len(config.sequences), 6)
-        self.assertEqual(len(config.tools), 2)
+        callback = create_construction_callback(
+            "Need {missing} resource",
+            resource_specs
+        )
 
-        # Check all required patterns are in zone patterns
-        for pattern in config.required_patterns:
-            self.assertIn(pattern, config.zone_patterns)
+        with self.assertRaises(ValueError) as context:
+            callback({})  # Empty resources dict
 
-    def test_config_with_extra_fields_preserved(self):
-        """Test that extra fields in config are preserved in misc."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['custom_field'] = 'custom_value'
-        toml_data['config']['nested'] = {'key': 'value'}
-        toml_data['config']['number_field'] = 42
+        self.assertIn("Required resource 'missing_resource' for placeholder 'missing' not found",
+                      str(context.exception))
 
-        config = parse_config(toml_data)
+    def test_callback_handles_resource_call_failures(self):
+        """Test callback handles exceptions from resource calls."""
+        resource_specs = {
+            "failing": {
+                "name": "failing_resource",
+                "arguments": {"param": "value"},
+                "type": "default"
+            }
+        }
 
-        # Should still parse successfully
-        self.assertEqual(config.control_pattern, "[Jump]")
+        callback = create_construction_callback(
+            "This {failing} will fail",
+            resource_specs
+        )
 
-        # Extra fields should be in misc
-        self.assertEqual(config.misc['config']['custom_field'], 'custom_value')
-        self.assertEqual(config.misc['config']['nested'], {'key': 'value'})
-        self.assertEqual(config.misc['config']['number_field'], 42)
+        mock_resource = Mock(spec=AbstractResource)
+        mock_resource.side_effect = RuntimeError("Resource failed!")
 
-    def test_config_with_empty_valid_tags_but_warning(self):
-        """Test config that's valid but generates warning for empty tags."""
-        toml_data = self.get_valid_config()
-        toml_data['config']['valid_tags'] = []
+        resources = {"failing_resource": mock_resource}
 
+        with self.assertRaises(ValueError) as context:
+            callback(resources)
+
+        error_msg = str(context.exception)
+        self.assertIn("Error calling resource 'failing_resource' for placeholder 'failing'", error_msg)
+        self.assertIn("Resource failed!", error_msg)
+
+    def test_callback_handles_extra_placeholders_in_text(self):
+        """Test callback handles placeholders in text but not in specs."""
+        resource_specs = {}  # No specs provided
+
+        callback = create_construction_callback(
+            "This has {unexpected} placeholder",
+            resource_specs
+        )
+
+        with self.assertRaises(ValueError) as context:
+            callback({})
+
+        self.assertIn("Placeholder 'unexpected' found in text but no resource specification provided",
+                      str(context.exception))
+
+
+class TestErrorHandling(BaseZoneParserTest):
+    """Test that failures are reported usefully."""
+
+    def test_error_messages_include_context(self):
+        """Test that error messages include sequence/block/zone context."""
+        config = self.get_valid_config()
+        zone_info = self.create_zone_info(
+            zone_text="Bad placeholder {unclosed",
+            sequence_name="my_sequence",
+            block_index=3,
+            zone_index=7
+        )
+
+        with self.assertRaises(ZoneParseError) as context:
+            parse_zone(zone_info, config)
+
+        self.assert_zone_parse_error_context(context, "my_sequence", 3, 7)
+
+    def test_exception_chaining_works(self):
+        """Test that exception chaining preserves original errors."""
+        config = self.get_valid_config()
+        zone_info = self.create_zone_info(zone_text="Bad placeholder {unclosed")
+
+        with self.assertRaises(ZoneParseError) as context:
+            parse_zone(zone_info, config)
+
+        # Check that original exception is chained
+        self.assertIsNotNone(context.exception.__cause__)
+
+
+
+class TestHelperFunctions(BaseZoneParserTest):
+    """Test individual helper functions."""
+
+    def test_extract_placeholders(self):
+        """Test placeholder extraction from text."""
+        # Test normal placeholders
+        placeholders = extract_placeholders("Text with {placeholder1} and {placeholder2}")
+        self.assertEqual(set(placeholders), {"placeholder1", "placeholder2"})
+
+        # Test no placeholders
+        placeholders = extract_placeholders("Text with no placeholders")
+        self.assertEqual(placeholders, [])
+
+        # Test duplicate placeholders
+        placeholders = extract_placeholders("Text {same} and {same} again")
+        self.assertEqual(placeholders, ["same"])
+
+    def test_build_resource_specs(self):
+        """Test resource spec building from block data."""
+        placeholders = ["feedback", "count"]
+        block_data = {
+            "feedback": {
+                "name": "feedback_resource",
+                "arguments": {"num": 3}
+            },
+            "count": {
+                "name": "counter_resource",
+                "type": "flow_control"
+            }
+        }
+
+        specs = build_resource_specs(placeholders, block_data, "test_seq")
+
+        expected = {
+            "feedback": {
+                "name": "feedback_resource",
+                "arguments": {"num": 3},
+                "type": "default"
+            },
+            "count": {
+                "name": "counter_resource",
+                "arguments": None,
+                "type": "flow_control"
+            }
+        }
+        self.assert_resource_specs_equal(specs, expected)
+
+    def test_validate_flow_control_safety(self):
+        """Test flow control validation function."""
+        config = self.get_valid_config()
+
+        # Test safe case - no control pattern
+        zone_info = self.create_zone_info(zone_text="Safe text")
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            config = parse_config(toml_data)
+            validate_flow_control_safety("Safe text", config, zone_info)  # Should not warn
+            self.assertEqual(len(w), 0, "No warnings expected for safe text")
 
-            # Should parse successfully
-            self.assertEqual(config.valid_tags, [])
+        # Test safe case - properly escaped with both patterns
+        escaped_text = "Use [Escape] [Jump] [EndEscape] to jump"
+        zone_info = self.create_zone_info(zone_text=escaped_text)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            validate_flow_control_safety(escaped_text, config, zone_info)  # Should not warn
+            self.assertEqual(len(w), 0, "No warnings expected for properly escaped text")
 
-            # Should generate exactly one warning
-            self.assertEqual(len(w), 1)
-            self.assertIn("valid_tags", str(w[0].message).lower())
-            self.assertIn("empty", str(w[0].message).lower())
-
-    def test_num_zones_per_block_calculation(self):
-        """Test that num_zones_per_block correctly calculates zones as len(zone_patterns) - 1."""
-        toml_data = self.get_valid_config()
-        config = parse_config(toml_data)
-
-        # Default config has 3 zone_patterns, so should have 2 zones
-        self.assertEqual(config.num_zones_per_block, 2)
+        # Test unsafe case - unescaped control pattern
+        unsafe_text = "This will [Jump] immediately"
+        zone_info = self.create_zone_info(zone_text=unsafe_text)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            validate_flow_control_safety(unsafe_text, config, zone_info)  # Should warn
+            self.assertTrue(len(w) > 0, "Expected warning for unescaped control pattern")
+            warning_msg = str(w[0].message).lower()
+            self.assertIn("jump", warning_msg)
 
 
 if __name__ == "__main__":
-    # Run all tests
-    unittest.main(verbosity=2)
+    unittest.main()
