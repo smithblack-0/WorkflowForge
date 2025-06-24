@@ -18,25 +18,33 @@ from src.workflow_forge.tokenizer_interface import TokenizerInterface
 from src.workflow_forge.resources import AbstractResource, StaticStringResource, ListSamplerResource
 
 
-class TestZCPLoweringIntegration(unittest.TestCase):
-    """Integration tests for ZCP → RZCP → SZCP → LZCP pipeline with manually created data."""
+class BaseIntegrationTest(unittest.TestCase):
+    """Base class for integration tests with common setup."""
 
     def setUp(self):
         """Create realistic test fixtures manually (no parser)."""
-        # Create test config
-        self.config = Config(
+        self.config = self._create_test_config()
+        self.tokenizer = self._create_test_tokenizer()
+        self.tag_converter = self._create_test_tag_converter()
+        self.resources = self._create_test_resources()
+        self.tool_registry = self._create_test_tool_registry()
+
+    def _create_test_config(self) -> Config:
+        """Create test config with current API."""
+        return Config(
             zone_patterns=["[Prompt]", "[Answer]", "[EOS]"],
             required_patterns=["[Prompt]", "[Answer]"],
             valid_tags=["Training", "Correct", "Feedback"],
             default_max_token_length=1000,
             sequences=["setup", "control", "body"],
             control_pattern="[Jump]",
-            escape_token="[Escape]",
-            special_patterns=["[Prompt]", "[Answer]", "[EOS]", "[Jump]", "[Escape]"],
+            escape_patterns=("[Escape]", "[EndEscape]"),
+            tools=["calculator", "analyzer"],
             misc={}
         )
 
-        # Create REAL tokenizer interface implementation
+    def _create_test_tokenizer(self) -> TokenizerInterface:
+        """Create REAL tokenizer interface implementation."""
         def tokenize_fn(text: str) -> np.ndarray:
             # Simple hash-based tokenization for testing
             return np.array([hash(text) % 1000 + 1], dtype=np.int32)
@@ -52,21 +60,17 @@ class TestZCPLoweringIntegration(unittest.TestCase):
                 "[Answer]": 1002,
                 "[EOS]": 1003,
                 "[Jump]": 1004,
-                "[Escape]": 1005
+                "[Escape]": 1005,
+                "[EndEscape]": 1006
             }
 
-        self.tokenizer = TokenizerInterface(tokenize_fn, detokenize_fn, get_special_tokens_fn)
+        return TokenizerInterface(tokenize_fn, detokenize_fn, get_special_tokens_fn)
 
-        # Create REAL tag converter
-        self.tag_converter = TagConverter(self.config.valid_tags)
+    def _create_test_tag_converter(self) -> TagConverter:
+        """Create REAL tag converter."""
+        return TagConverter(self.config.valid_tags)
 
-        # Create REAL resources
-        self.resources = self._create_real_resources()
-
-        # Create REAL tool registry
-        self.tool_registry = self._create_real_tool_registry()
-
-    def _create_real_resources(self) -> Dict[str, AbstractResource]:
+    def _create_test_resources(self) -> Dict[str, AbstractResource]:
         """Create real resource implementations for testing."""
         resources = {}
 
@@ -82,7 +86,7 @@ class TestZCPLoweringIntegration(unittest.TestCase):
 
         return resources
 
-    def _create_real_tool_registry(self) -> Dict[str, Callable[[np.ndarray], np.ndarray]]:
+    def _create_test_tool_registry(self) -> Dict[str, Callable[[np.ndarray], np.ndarray]]:
         """Create real tool registry for testing."""
         def calculator_tool(tokens: np.ndarray) -> np.ndarray:
             return np.array([42], dtype=np.int32)  # Always returns "42"
@@ -90,6 +94,7 @@ class TestZCPLoweringIntegration(unittest.TestCase):
         def analyzer_tool(tokens: np.ndarray) -> np.ndarray:
             return np.array([99], dtype=np.int32)  # Always returns "99"
 
+        # Store references for verification in tests
         self.calculator_callback = calculator_tool
         self.analyzer_callback = analyzer_tool
 
@@ -98,23 +103,7 @@ class TestZCPLoweringIntegration(unittest.TestCase):
             "analyzer": analyzer_tool
         }
 
-    def _create_real_tool_registry(self) -> Dict[str, Callable[[np.ndarray], np.ndarray]]:
-        """Create real tool registry for testing."""
-        def calculator_tool(tokens: np.ndarray) -> np.ndarray:
-            return np.array([42], dtype=np.int32)  # Always returns "42"
-
-        def analyzer_tool(tokens: np.ndarray) -> np.ndarray:
-            return np.array([99], dtype=np.int32)  # Always returns "99"
-
-        self.calculator_callback = calculator_tool
-        self.analyzer_callback = analyzer_tool
-
-        return {
-            "calculator": calculator_tool,
-            "analyzer": analyzer_tool
-        }
-
-    def _create_construction_callback(self, template: str, resource_specs: Dict[str, Dict[str, Any]]) -> Callable[[Dict[str, AbstractResource]], str]:
+    def create_construction_callback(self, template: str, resource_specs: Dict[str, Dict[str, Any]]) -> Callable[[Dict[str, AbstractResource]], str]:
         """Create a construction callback that resolves placeholders."""
         def callback(resources: Dict[str, AbstractResource]) -> str:
             resolved_values = {}
@@ -134,6 +123,50 @@ class TestZCPLoweringIntegration(unittest.TestCase):
             return template.format(**resolved_values)
 
         return callback
+
+    def create_zcp_node(self, sequence: str, block: int, template: str,
+                       resource_specs: Dict[str, Dict[str, Any]], zone_advance_str: str,
+                       tags: list, timeout: int = 500) -> ZCPNode:
+        """Helper to create ZCP nodes with consistent structure."""
+        return ZCPNode(
+            sequence=sequence,
+            block=block,
+            construction_callback=self.create_construction_callback(template, resource_specs),
+            resource_specs=resource_specs,
+            raw_text=template,
+            zone_advance_str=zone_advance_str,
+            tags=tags,
+            timeout=timeout
+        )
+
+    def create_rzcp_node(self, sequence: str, block: int, zone_advance_str: str,
+                        tags: list, timeout: int, sampling_callback: Callable[[], str],
+                        **kwargs) -> RZCPNode:
+        """Helper to create RZCP nodes with required fields."""
+        defaults = {
+            'escape_strs': ('[Escape]', '[EndEscape]'),  # Added required field
+            'input': False,
+            'output': False,
+            'next_zone': None,
+            'jump_advance_str': None,
+            'jump_zone': None,
+            'tool_name': None
+        }
+        defaults.update(kwargs)
+
+        return RZCPNode(
+            sequence=sequence,
+            block=block,
+            zone_advance_str=zone_advance_str,
+            tags=tags,
+            timeout=timeout,
+            sampling_callback=sampling_callback,
+            **defaults
+        )
+
+
+class TestZCPLoweringIntegration(BaseIntegrationTest):
+    """Integration tests for ZCP → RZCP → SZCP → LZCP pipeline with manually created data."""
 
     def _create_simple_zcp_chain(self) -> ZCPNode:
         """Create a simple linear ZCP chain with no placeholders."""
@@ -182,18 +215,15 @@ class TestZCPLoweringIntegration(unittest.TestCase):
 
         template = "[Prompt] Follow this principle: {principle}. Also consider: {feedback} [Answer]"
 
-        node = ZCPNode(
+        return self.create_zcp_node(
             sequence="reasoning",
             block=0,
-            construction_callback=self._create_construction_callback(template, resource_specs),
+            template=template,
             resource_specs=resource_specs,
-            raw_text=template,
             zone_advance_str="[Answer]",
             tags=["Training"],
             timeout=1000
         )
-
-        return node
 
     def _create_zcp_with_tools(self) -> ZCPNode:
         """Create ZCP chain that uses tools."""
@@ -227,12 +257,12 @@ class TestZCPLoweringIntegration(unittest.TestCase):
     def _create_rzcp_with_flow_control(self) -> RZCPNode:
         """Create RZCP graph with flow control (loop)."""
         # Control node - decides whether to loop
-        control_callback = lambda: "[Prompt] Continue? Say 'yes' or emit [Escape] [Jump] to exit [Answer]"
+        control_callback = lambda: "[Prompt] Continue? Say 'yes' or emit [Escape] [Jump] [EndEscape] to exit [Answer]"
 
         # Body node - the work being repeated
         body_callback = lambda: " Working on the problem... [EOS]"
 
-        body_node = RZCPNode(
+        body_node = self.create_rzcp_node(
             sequence="body",
             block=0,
             zone_advance_str="[EOS]",
@@ -242,7 +272,7 @@ class TestZCPLoweringIntegration(unittest.TestCase):
         )
 
         # Control node with proper jump setup
-        control_node = RZCPNode(
+        control_node = self.create_rzcp_node(
             sequence="control",
             block=0,
             zone_advance_str="[Answer]",
@@ -266,8 +296,8 @@ class TestZCPLoweringIntegration(unittest.TestCase):
         # Setup: Create ZCP chain manually
         zcp_chain = self._create_simple_zcp_chain()
 
-        # Execute: Lower ZCP → RZCP → SZCP → LZCP
-        rzcp = zcp_chain.lower(self.resources)
+        # Execute: Lower ZCP → RZCP → SZCP → LZCP (fixed API calls)
+        rzcp = zcp_chain.lower(self.resources, self.config)  # Added missing config parameter
         szcp = rzcp.lower()
         lzcp = szcp.lower(self.tokenizer, self.tag_converter, self.tool_registry)
 
@@ -289,13 +319,17 @@ class TestZCPLoweringIntegration(unittest.TestCase):
         self.assertIsInstance(lzcp.tags, np.ndarray)
         self.assertEqual(lzcp.tags.dtype, np.bool_)
 
+        # Verify escape_tokens field present
+        self.assertIsInstance(lzcp.escape_tokens, tuple)
+        self.assertEqual(len(lzcp.escape_tokens), 2)
+
     def test_resource_resolution_integration(self):
         """Test that resources with arguments are called correctly."""
         # Setup: ZCP with placeholders requiring resources with args
         zcp_with_resources = self._create_zcp_with_resources()
 
-        # Execute: Lower with specific resource calls expected
-        rzcp = zcp_with_resources.lower(self.resources)
+        # Execute: Lower with specific resource calls expected (fixed API)
+        rzcp = zcp_with_resources.lower(self.resources, self.config)
         szcp = rzcp.lower()
 
         # Verify: Resources were used correctly (check actual text resolution)
@@ -306,10 +340,10 @@ class TestZCPLoweringIntegration(unittest.TestCase):
 
     def test_tool_integration(self):
         """Test tool name → callback resolution works."""
-        # Setup: Create RZCP with tool name
+        # Setup: Create RZCP with tool name (using helper)
         capture_callback = lambda: "[Prompt] Calculate 2+2 [Answer]"
 
-        capture_node = RZCPNode(
+        capture_node = self.create_rzcp_node(
             sequence="calc",
             block=0,
             zone_advance_str="[Answer]",
@@ -379,15 +413,13 @@ class TestZCPLoweringIntegration(unittest.TestCase):
                 "type": "control"
             }
         }
-        control_template = "[Prompt] Try again? Max {max_tries} times. Emit [Escape] [Jump] to exit [Answer]"
-        control_callback = self._create_construction_callback(control_template, control_specs)
+        control_template = "[Prompt] Try again? Max {max_tries} times. Emit [Escape] [Jump] [EndEscape] to exit [Answer]"
 
-        control_zcp = ZCPNode(
+        control_zcp = self.create_zcp_node(
             sequence="control",
             block=0,
-            construction_callback=control_callback,
+            template=control_template,
             resource_specs=control_specs,
-            raw_text=control_template,
             zone_advance_str="[Answer]",
             tags=[],
             timeout=500
@@ -417,10 +449,10 @@ class TestZCPLoweringIntegration(unittest.TestCase):
             timeout=500
         )
 
-        # Execute: Lower ZCP → RZCP with resources
-        control_rzcp = control_zcp.lower(self.resources)
-        work_rzcp = work_zcp.lower(self.resources)
-        feedback_rzcp = feedback_zcp.lower(self.resources)
+        # Execute: Lower ZCP → RZCP with resources (fixed API)
+        control_rzcp = control_zcp.lower(self.resources, self.config)
+        work_rzcp = work_zcp.lower(self.resources, self.config)
+        feedback_rzcp = feedback_zcp.lower(self.resources, self.config)
 
         # Wire RZCP graph with flow control and tool settings
         control_rzcp.next_zone = work_rzcp
@@ -469,6 +501,9 @@ class TestZCPLoweringIntegration(unittest.TestCase):
         self.assertIsInstance(lzcp.tags, np.ndarray)
         self.assertEqual(lzcp.tags.dtype, np.bool_)
 
+        # 7. Escape tokens present
+        self.assertIsInstance(lzcp.escape_tokens, tuple)
+
     def test_error_propagation_integration(self):
         """Test that errors propagate correctly through the pipeline."""
 
@@ -488,30 +523,29 @@ class TestZCPLoweringIntegration(unittest.TestCase):
             }
         }
 
-        zcp_node = ZCPNode(
+        zcp_node = self.create_zcp_node(
             sequence="test",
             block=0,
-            construction_callback=self._create_construction_callback("Text {bad_placeholder}", resource_specs),
+            template="Text {bad_placeholder}",
             resource_specs=resource_specs,
-            raw_text="Text {bad_placeholder}",
             zone_advance_str="[Answer]",
             tags=[],
             timeout=500
         )
 
-        # Execute: Should fail during RZCP → SZCP lowering
+        # Execute: Should fail during resource resolution in sampling callback
         with self.assertRaises(Exception) as context:
-            rzcp = zcp_node.lower(bad_resources)
-            rzcp.lower()
+            rzcp = zcp_node.lower(bad_resources, self.config)
+            rzcp.lower()  # This should trigger sampling callback and fail
 
-
-
+        # Verify: Exception was properly raised (specific type depends on implementation)
+        self.assertIsNotNone(context.exception)
 
     def test_serialization_boundary_integration(self):
         """Test that SZCP can be serialized (simulating client/server boundary)."""
-        # Setup: Create RZCP and lower to SZCP
+        # Setup: Create RZCP and lower to SZCP (fixed API)
         zcp_chain = self._create_simple_zcp_chain()
-        rzcp = zcp_chain.lower(self.resources)
+        rzcp = zcp_chain.lower(self.resources, self.config)
         szcp = rzcp.lower()
 
         # Execute: Serialize and deserialize
@@ -525,6 +559,9 @@ class TestZCPLoweringIntegration(unittest.TestCase):
         self.assertIsInstance(lzcp, LZCPNode)
         self.assertEqual(lzcp.sequence, "setup")
         self.assertIsNotNone(lzcp.next_zone)
+
+        # Verify: escape_strs preserved through serialization
+        self.assertEqual(deserialized.escape_strs, ('[Escape]', '[EndEscape]'))
 
 
 if __name__ == "__main__":

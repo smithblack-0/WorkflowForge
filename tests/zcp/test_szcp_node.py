@@ -11,11 +11,10 @@ Tests cover:
 7. Serialization and deserialization functionality
 """
 
-
 import unittest
 import numpy as np
 from unittest.mock import Mock
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 # Import the modules under test
 from src.workflow_forge.zcp.nodes import SZCPNode, LZCPNode, GraphError, GraphLoweringError
@@ -23,18 +22,43 @@ from src.workflow_forge.backend.tag_converter import TagConverter
 from src.workflow_forge.tokenizer_interface import TokenizerInterface
 
 
-class TestSZCPNodeConstruction(unittest.TestCase):
-    """Test SZCPNode creation and validation."""
+class BaseSZCPNodeTest(unittest.TestCase):
+    """Base test class with common setup and helper methods."""
 
     def setUp(self):
-        """Set up test fixtures."""
-        # Basic valid node data
-        self.valid_node_data = {
+        """Set up common test fixtures."""
+        # Create mock tokenizer
+        self.mock_tokenizer = Mock(spec=TokenizerInterface)
+        self.mock_tokenizer.tokenize = Mock()
+        self.mock_tokenizer.tokenize.side_effect = lambda text: np.array([hash(text) % 1000], dtype=np.int32)
+
+        # Create mock tag converter
+        self.mock_tag_converter = Mock(spec=TagConverter)
+        self.mock_tag_converter.tensorize = Mock()
+        self.mock_tag_converter.tensorize.side_effect = lambda tags: np.array([True] * len(tags), dtype=np.bool_)
+
+        # Create mock tool registry
+        self.mock_tool_callback = Mock()
+        self.mock_tool_callback.return_value = np.array([99], dtype=np.int32)
+        self.tool_registry = {'calculator': self.mock_tool_callback}
+
+    def get_valid_node_data(self, **overrides) -> Dict[str, Any]:
+        """
+        Return valid node data for testing, with optional field overrides.
+
+        Args:
+            **overrides: Fields to override in the base node data
+
+        Returns:
+            Dictionary of valid SZCPNode constructor arguments
+        """
+        base_data = {
             'sequence': 'test_sequence',
             'block': 0,
             'text': 'Test resolved text',
             'zone_advance_str': '[Answer]',
-            'tags': ['Training', 'Correct'],
+            'escape_strs': ('[Escape]', '[EndEscape]'),
+            'tags': ['Training'],
             'timeout': 1000,
             'input': False,
             'output': False,
@@ -43,16 +67,130 @@ class TestSZCPNodeConstruction(unittest.TestCase):
             'jump_zone': None,
             'tool_name': None
         }
+        base_data.update(overrides)
+        return base_data
+
+    def create_node(self, **overrides) -> SZCPNode:
+        """
+        Create an SZCPNode with valid data and optional overrides.
+
+        Args:
+            **overrides: Fields to override in the base node data
+
+        Returns:
+            Configured SZCPNode instance
+        """
+        return SZCPNode(**self.get_valid_node_data(**overrides))
+
+    def create_node_chain(self, length: int, **base_overrides) -> SZCPNode:
+        """
+        Create a chain of linked SZCPNodes.
+
+        Args:
+            length: Number of nodes in the chain
+            **base_overrides: Common overrides to apply to all nodes
+
+        Returns:
+            Head node of the chain
+        """
+        if length < 1:
+            raise ValueError("Chain length must be at least 1")
+
+        # Create nodes
+        nodes = []
+        for i in range(length):
+            node_overrides = base_overrides.copy()
+            node_overrides.update({'block': i, 'text': f'Test text {i}'})
+            node = self.create_node(**node_overrides)
+            nodes.append(node)
+
+        # Link them
+        for i in range(length - 1):
+            nodes[i].next_zone = nodes[i + 1]
+
+        return nodes[0]
+
+    def create_jump_node(self, target_node: SZCPNode, jump_str: str = '[Jump]', **overrides) -> SZCPNode:
+        """
+        Create an SZCPNode with jump capability.
+
+        Args:
+            target_node: The node to jump to
+            jump_str: The jump advance string
+            **overrides: Additional field overrides
+
+        Returns:
+            SZCPNode with jump capability configured
+        """
+        jump_overrides = {
+            'jump_advance_str': jump_str,
+            'jump_zone': target_node
+        }
+        jump_overrides.update(overrides)
+        return self.create_node(**jump_overrides)
+
+    def create_topology_node(self, block: int, **overrides) -> SZCPNode:
+        """Helper to create nodes for topology tests with unique text."""
+        overrides.update({'block': block, 'text': f'text_{block}'})
+        return self.create_node(**overrides)
+
+    def assert_lzcp_node_properties(self, lzcp_node: LZCPNode, expected_sequence: str,
+                                  expected_block: int, expected_timeout: int = 1000):
+        """
+        Assert common properties of an LZCPNode.
+
+        Args:
+            lzcp_node: The LZCPNode to validate
+            expected_sequence: Expected sequence name
+            expected_block: Expected block number
+            expected_timeout: Expected timeout value
+        """
+        self.assertIsInstance(lzcp_node, LZCPNode)
+        self.assertEqual(lzcp_node.sequence, expected_sequence)
+        self.assertEqual(lzcp_node.block, expected_block)
+        self.assertEqual(lzcp_node.timeout, expected_timeout)
+
+    def assert_graph_error_context(self, context_manager, expected_sequence: str, expected_block: int):
+        """
+        Assert that a GraphError has the expected context information.
+
+        Args:
+            context_manager: The exception context manager
+            expected_sequence: Expected sequence name in error
+            expected_block: Expected block number in error
+        """
+        self.assertEqual(context_manager.exception.sequence, expected_sequence)
+        self.assertEqual(context_manager.exception.block, expected_block)
+
+    def nodes_data_equal(self, node1: SZCPNode, node2: SZCPNode) -> bool:
+        """Helper to compare data equality between two nodes."""
+        return (node1.sequence == node2.sequence and
+                node1.block == node2.block and
+                node1.text == node2.text and
+                node1.zone_advance_str == node2.zone_advance_str and
+                node1.escape_strs == node2.escape_strs and  # Added escape_strs check
+                node1.tags == node2.tags and
+                node1.timeout == node2.timeout and
+                node1.input == node2.input and
+                node1.output == node2.output and
+                node1.jump_advance_str == node2.jump_advance_str and
+                node1.tool_name == node2.tool_name)
+
+
+class TestSZCPNodeConstruction(BaseSZCPNodeTest):
+    """Test SZCPNode creation and validation."""
 
     def test_valid_node_creation(self):
         """Test creating a valid SZCPNode with all required fields."""
-        node = SZCPNode(**self.valid_node_data)
+        node_data = self.get_valid_node_data()
+        node = SZCPNode(**node_data)
 
         self.assertEqual(node.sequence, 'test_sequence')
         self.assertEqual(node.block, 0)
         self.assertEqual(node.text, 'Test resolved text')
         self.assertEqual(node.zone_advance_str, '[Answer]')
-        self.assertEqual(node.tags, ['Training', 'Correct'])
+        self.assertEqual(node.escape_strs, ('[Escape]', '[EndEscape]'))
+        self.assertEqual(node.tags, ['Training'])
         self.assertEqual(node.timeout, 1000)
         self.assertFalse(node.input)
         self.assertFalse(node.output)
@@ -64,179 +202,118 @@ class TestSZCPNodeConstruction(unittest.TestCase):
     def test_input_output_flags(self):
         """Test nodes with input/output flags set."""
         # Test input node
-        input_data = self.valid_node_data.copy()
-        input_data['input'] = True
-        input_node = SZCPNode(**input_data)
+        input_node = self.create_node(input=True)
         self.assertTrue(input_node.input)
 
         # Test output node
-        output_data = self.valid_node_data.copy()
-        output_data['output'] = True
-        output_node = SZCPNode(**output_data)
+        output_node = self.create_node(output=True)
         self.assertTrue(output_node.output)
 
     def test_tool_name_assignment(self):
         """Test node with tool name."""
-        tool_data = self.valid_node_data.copy()
-        tool_data['tool_name'] = 'calculator'
-        tool_node = SZCPNode(**tool_data)
+        tool_node = self.create_node(tool_name='calculator')
         self.assertEqual(tool_node.tool_name, 'calculator')
+
+    def test_escape_strs_assignment(self):
+        """Test that escape_strs field is properly assigned."""
+        node = self.create_node()
+        self.assertEqual(node.escape_strs, ('[Escape]', '[EndEscape]'))
+
+        # Test with custom escape strings
+        custom_node = self.create_node(escape_strs=('[Start]', '[End]'))
+        self.assertEqual(custom_node.escape_strs, ('[Start]', '[End]'))
 
     def test_post_init_jump_consistency_both_present(self):
         """Test __post_init__ validation when both jump_advance_str and jump_zone are present."""
-        target_node = SZCPNode(**self.valid_node_data)
-
-        node_data = self.valid_node_data.copy()
-        node_data['jump_advance_str'] = '[Jump]'
-        node_data['jump_zone'] = target_node
+        target_node = self.create_node()
+        jump_node = self.create_jump_node(target_node)
 
         # Should not raise exception
-        node = SZCPNode(**node_data)
-        self.assertIsNotNone(node.jump_advance_str)
-        self.assertIsNotNone(node.jump_zone)
+        self.assertIsNotNone(jump_node.jump_advance_str)
+        self.assertIsNotNone(jump_node.jump_zone)
 
 
-
-class TestSZCPNodeStateQueries(unittest.TestCase):
+class TestSZCPNodeStateQueries(BaseSZCPNodeTest):
     """Test state query methods."""
-
-    def setUp(self):
-        """Set up test fixtures."""
-        self.base_node_data = {
-            'sequence': 'test_sequence',
-            'block': 0,
-            'text': 'Test text',
-            'zone_advance_str': '[Answer]',
-            'tags': ['Training'],
-            'timeout': 1000,
-            'input': False,
-            'output': False,
-            'next_zone': None,
-            'jump_advance_str': None,
-            'jump_zone': None,
-            'tool_name': None
-        }
 
     def test_has_jump_false(self):
         """Test has_jump returns False when no jump capability."""
-        node = SZCPNode(**self.base_node_data)
+        node = self.create_node()
         self.assertFalse(node.has_jump())
 
     def test_has_jump_true(self):
         """Test has_jump returns True when jump capability exists."""
-        target_node = SZCPNode(**self.base_node_data)
-
-        node_data = self.base_node_data.copy()
-        node_data['jump_advance_str'] = '[Jump]'
-        node_data['jump_zone'] = target_node
-
-        node = SZCPNode(**node_data)
-        self.assertTrue(node.has_jump())
+        target_node = self.create_node()
+        jump_node = self.create_jump_node(target_node)
+        self.assertTrue(jump_node.has_jump())
 
     def test_is_terminal_true(self):
         """Test is_terminal returns True for terminal nodes."""
-        node = SZCPNode(**self.base_node_data)
+        node = self.create_node()
         # No next_zone, no jump_zone
         self.assertTrue(node.is_terminal())
 
     def test_is_terminal_false_has_next(self):
         """Test is_terminal returns False when node has next_zone."""
-        next_node = SZCPNode(**self.base_node_data)
-
-        node_data = self.base_node_data.copy()
-        node_data['next_zone'] = next_node
-
-        node = SZCPNode(**node_data)
+        next_node = self.create_node()
+        node = self.create_node(next_zone=next_node)
         self.assertFalse(node.is_terminal())
 
     def test_is_terminal_false_has_jump(self):
         """Test is_terminal returns False when node has jump capability."""
-        target_node = SZCPNode(**self.base_node_data)
-
-        node_data = self.base_node_data.copy()
-        node_data['jump_advance_str'] = '[Jump]'
-        node_data['jump_zone'] = target_node
-
-        node = SZCPNode(**node_data)
-        self.assertFalse(node.is_terminal())
+        target_node = self.create_node()
+        jump_node = self.create_jump_node(target_node)
+        self.assertFalse(jump_node.is_terminal())
 
     def test_is_input_zone(self):
         """Test is_input_zone reflects input flag."""
         # Test False
-        node = SZCPNode(**self.base_node_data)
+        node = self.create_node()
         self.assertFalse(node.is_input_zone())
 
         # Test True
-        node_data = self.base_node_data.copy()
-        node_data['input'] = True
-        input_node = SZCPNode(**node_data)
+        input_node = self.create_node(input=True)
         self.assertTrue(input_node.is_input_zone())
 
     def test_is_output_zone(self):
         """Test is_output_zone reflects output flag."""
         # Test False
-        node = SZCPNode(**self.base_node_data)
+        node = self.create_node()
         self.assertFalse(node.is_output_zone())
 
         # Test True
-        node_data = self.base_node_data.copy()
-        node_data['output'] = True
-        output_node = SZCPNode(**node_data)
+        output_node = self.create_node(output=True)
         self.assertTrue(output_node.is_output_zone())
 
     def test_has_tool_false(self):
         """Test has_tool returns False when no tool name."""
-        node = SZCPNode(**self.base_node_data)
+        node = self.create_node()
         self.assertFalse(node.has_tool())
 
     def test_has_tool_true(self):
         """Test has_tool returns True when tool name exists."""
-        node_data = self.base_node_data.copy()
-        node_data['tool_name'] = 'calculator'
-
-        node = SZCPNode(**node_data)
-        self.assertTrue(node.has_tool())
+        tool_node = self.create_node(tool_name='calculator')
+        self.assertTrue(tool_node.has_tool())
 
 
-class TestSZCPNodeLinkedList(unittest.TestCase):
+class TestSZCPNodeLinkedList(BaseSZCPNodeTest):
     """Test linked list operations."""
-
-    def setUp(self):
-        """Set up test fixtures."""
-        self.base_node_data = {
-            'sequence': 'test_sequence',
-            'block': 0,
-            'text': 'Test text',
-            'zone_advance_str': '[Answer]',
-            'tags': ['Training'],
-            'timeout': 1000,
-            'input': False,
-            'output': False
-        }
 
     def test_get_last_node_single(self):
         """Test get_last_node with single node returns self."""
-        node = SZCPNode(**self.base_node_data)
-
+        node = self.create_node()
         last_node = node.get_last_node()
         self.assertEqual(last_node, node)
 
     def test_get_last_node_chain(self):
         """Test get_last_node traverses to end of chain."""
-        # Create three nodes
-        node1 = SZCPNode(**self.base_node_data)
+        # Create three-node chain
+        head_node = self.create_node_chain(3)
 
-        node2_data = self.base_node_data.copy()
-        node2_data['block'] = 1
-        node2 = SZCPNode(**node2_data)
-
-        node3_data = self.base_node_data.copy()
-        node3_data['block'] = 2
-        node3 = SZCPNode(**node3_data)
-
-        # Link them: node1 -> node2 -> node3
-        node1.next_zone = node2
-        node2.next_zone = node3
+        # Navigate to get individual nodes
+        node1 = head_node
+        node2 = head_node.next_zone
+        node3 = head_node.next_zone.next_zone
 
         # get_last_node should return node3 from any starting point
         self.assertEqual(node1.get_last_node(), node3)
@@ -245,11 +322,8 @@ class TestSZCPNodeLinkedList(unittest.TestCase):
 
     def test_chain_building(self):
         """Test building chains by setting next_zone."""
-        node1 = SZCPNode(**self.base_node_data)
-
-        node2_data = self.base_node_data.copy()
-        node2_data['block'] = 1
-        node2 = SZCPNode(**node2_data)
+        node1 = self.create_node(block=0)
+        node2 = self.create_node(block=1)
 
         # Initially disconnected
         self.assertIsNone(node1.next_zone)
@@ -265,18 +339,10 @@ class TestSZCPNodeLinkedList(unittest.TestCase):
     def test_chain_traversal(self):
         """Test manual traversal through a chain."""
         # Create 4-node chain
-        nodes = []
-        for i in range(4):
-            node_data = self.base_node_data.copy()
-            node_data['block'] = i
-            nodes.append(SZCPNode(**node_data))
-
-        # Link them
-        for i in range(3):
-            nodes[i].next_zone = nodes[i + 1]
+        head_node = self.create_node_chain(4)
 
         # Traverse and verify order
-        current = nodes[0]
+        current = head_node
         visited_blocks = []
 
         while current is not None:
@@ -286,53 +352,19 @@ class TestSZCPNodeLinkedList(unittest.TestCase):
         self.assertEqual(visited_blocks, [0, 1, 2, 3])
 
 
-class TestSZCPNodeBasicLowering(unittest.TestCase):
+class TestSZCPNodeBasicLowering(BaseSZCPNodeTest):
     """Test basic lowering operations."""
-
-    def setUp(self):
-        """Set up test fixtures."""
-        # Create mock tokenizer properly
-        self.mock_tokenizer = Mock(spec=TokenizerInterface)
-        self.mock_tokenizer.tokenize = Mock()
-        self.mock_tokenizer.tokenize.side_effect = lambda text: np.array([hash(text) % 1000], dtype=np.int32)
-
-        # Create mock tag converter properly
-        self.mock_tag_converter = Mock(spec=TagConverter)
-        self.mock_tag_converter.tensorize = Mock()
-        self.mock_tag_converter.tensorize.side_effect = lambda tags: np.array([True] * len(tags), dtype=np.bool_)
-
-        # Create mock tool registry
-        self.mock_tool_callback = Mock()
-        self.mock_tool_callback.return_value = np.array([99], dtype=np.int32)
-        self.tool_registry = {'calculator': self.mock_tool_callback}
-
-        # Base node data
-        self.base_node_data = {
-            'sequence': 'test_sequence',
-            'block': 0,
-            'text': 'Test resolved text',
-            'zone_advance_str': '[Answer]',
-            'tags': ['Training'],
-            'timeout': 1000,
-            'input': False,
-            'output': False,
-            'next_zone': None,
-            'jump_advance_str': None,
-            'jump_zone': None,
-            'tool_name': None
-        }
 
     def test_lower_node_success(self):
         """Test lower creates valid LZCPNode."""
-        node = SZCPNode(**self.base_node_data)
+        node = self.create_node()
 
         result = node.lower(self.mock_tokenizer, self.mock_tag_converter, self.tool_registry)
 
-        # Verify result type and basic properties
-        self.assertIsInstance(result, LZCPNode)
-        self.assertEqual(result.sequence, 'test_sequence')
-        self.assertEqual(result.block, 0)
-        self.assertEqual(result.timeout, 1000)
+        # Verify result using helper assertion
+        self.assert_lzcp_node_properties(result, 'test_sequence', 0)
+
+        # Verify basic properties
         self.assertFalse(result.input)
         self.assertFalse(result.output)
         self.assertIsNone(result.next_zone)
@@ -345,16 +377,16 @@ class TestSZCPNodeBasicLowering(unittest.TestCase):
         self.mock_tokenizer.tokenize.assert_any_call('[Answer]')
 
         # Verify tag converter was called
-        self.mock_tag_converter.tensorize.assert_called_once_with(['Training'])
+        self.mock_tag_converter.tensorize.assert_called_with(['Training'])
 
     def test_lower_node_field_preservation(self):
         """Test that all fields are properly preserved during lowering."""
-        node_data = self.base_node_data.copy()
-        node_data['input'] = True
-        node_data['output'] = True
-        node_data['tool_name'] = 'calculator'
+        node = self.create_node(
+            input=True,
+            output=True,
+            tool_name='calculator'
+        )
 
-        node = SZCPNode(**node_data)
         result = node.lower(self.mock_tokenizer, self.mock_tag_converter, self.tool_registry)
 
         # Verify flags preserved
@@ -364,8 +396,7 @@ class TestSZCPNodeBasicLowering(unittest.TestCase):
 
     def test_lower_single_node(self):
         """Test lower() method with single node."""
-        node = SZCPNode(**self.base_node_data)
-
+        node = self.create_node()
         result = node.lower(self.mock_tokenizer, self.mock_tag_converter, self.tool_registry)
 
         # Should return LZCPNode
@@ -375,40 +406,26 @@ class TestSZCPNodeBasicLowering(unittest.TestCase):
 
     def test_lower_chain_of_nodes(self):
         """Test lower() method with chain of nodes."""
-        # Create two nodes
-        node1 = SZCPNode(**self.base_node_data)
-
-        node2_data = self.base_node_data.copy()
-        node2_data['block'] = 1
-        node2_data['text'] = 'Second node text'
-        node2 = SZCPNode(**node2_data)
-
-        # Link them
-        node1.next_zone = node2
+        # Create two-node chain
+        head_node = self.create_node_chain(2)
 
         # Lower the chain
-        result_head = node1.lower(self.mock_tokenizer, self.mock_tag_converter, self.tool_registry)
+        result_head = head_node.lower(self.mock_tokenizer, self.mock_tag_converter, self.tool_registry)
 
         # Verify chain structure is preserved
-        self.assertIsInstance(result_head, LZCPNode)
-        self.assertEqual(result_head.block, 0)
+        self.assert_lzcp_node_properties(result_head, 'test_sequence', 0)
 
         self.assertIsNotNone(result_head.next_zone)
-        self.assertIsInstance(result_head.next_zone, LZCPNode)
-        self.assertEqual(result_head.next_zone.block, 1)
+        self.assert_lzcp_node_properties(result_head.next_zone, 'test_sequence', 1)
 
         self.assertIsNone(result_head.next_zone.next_zone)
 
     def test_lower_with_jump(self):
         """Test lower() preserves jump information."""
-        target_node = SZCPNode(**self.base_node_data)
+        target_node = self.create_node()
+        jump_node = self.create_jump_node(target_node)
 
-        node_data = self.base_node_data.copy()
-        node_data['jump_advance_str'] = '[Jump]'
-        node_data['jump_zone'] = target_node
-
-        node = SZCPNode(**node_data)
-        result = node.lower(self.mock_tokenizer, self.mock_tag_converter, self.tool_registry)
+        result = jump_node.lower(self.mock_tokenizer, self.mock_tag_converter, self.tool_registry)
 
         # Verify jump tokens were tokenized and preserved
         self.assertIsNotNone(result.jump_tokens)
@@ -420,21 +437,15 @@ class TestSZCPNodeBasicLowering(unittest.TestCase):
 
     def test_lower_with_tool(self):
         """Test lower() preserves tool information."""
-        node_data = self.base_node_data.copy()
-        node_data['tool_name'] = 'calculator'
-
-        node = SZCPNode(**node_data)
-        result = node.lower(self.mock_tokenizer, self.mock_tag_converter, self.tool_registry)
+        tool_node = self.create_node(tool_name='calculator')
+        result = tool_node.lower(self.mock_tokenizer, self.mock_tag_converter, self.tool_registry)
 
         # Verify tool callback preserved
         self.assertEqual(result.tool_callback, self.mock_tool_callback)
 
     def test_lower_missing_tool_in_registry(self):
         """Test lower() fails when tool not found in registry."""
-        node_data = self.base_node_data.copy()
-        node_data['tool_name'] = 'missing_tool'
-
-        node = SZCPNode(**node_data)
+        node = self.create_node(tool_name='missing_tool')
 
         with self.assertRaises(GraphLoweringError) as context:
             node.lower(self.mock_tokenizer, self.mock_tag_converter, self.tool_registry)
@@ -443,114 +454,16 @@ class TestSZCPNodeBasicLowering(unittest.TestCase):
         self.assertEqual(context.exception.block, 0)
 
 
-class TestSZCPNodeGraphTopology(unittest.TestCase):
+class TestSZCPNodeGraphTopology(BaseSZCPNodeTest):
     """Test graph topology lowering - the mathematical DCG-IO focus."""
-
-    def setUp(self):
-        # Create mock tokenizer properly
-        self.mock_tokenizer = Mock(spec=TokenizerInterface)
-        self.mock_tokenizer.tokenize = Mock()
-        self.mock_tokenizer.tokenize.side_effect = lambda text: np.array([hash(text) % 1000], dtype=np.int32)
-
-        # Create mock tag converter properly
-        self.mock_tag_converter = Mock(spec=TagConverter)
-        self.mock_tag_converter.tensorize = Mock()
-        self.mock_tag_converter.tensorize.side_effect = lambda tags: np.array([True] * len(tags), dtype=np.bool_)
-
-        # Create mock tool registry
-        self.mock_tool_callback = Mock()
-        self.mock_tool_callback.return_value = np.array([99], dtype=np.int32)
-
-        self.tool_registry = {}
-        self.base_node_data = {
-            'sequence': 'test_sequence',
-            'text': 'Test text',
-            'zone_advance_str': '[Answer]',
-            'tags': ['Training'],
-            'timeout': 1000,
-            'input': False,
-            'output': False,
-            'next_zone': None,
-            'jump_advance_str': None,
-            'jump_zone': None
-        }
-
-    def _create_node(self, block: int, **overrides) -> SZCPNode:
-        """Helper to create nodes with block number and optional overrides."""
-        node_data = self.base_node_data.copy()
-        node_data['block'] = block
-        node_data.update(overrides)
-        return SZCPNode(**node_data)
-
-    def _test_graph_identity(self, original_szcp: SZCPNode, lowered_lzcp: LZCPNode):
-        """
-        Helper to verify that a lowered LZCP graph preserves the structure and
-        essential properties of the original SZCP graph.
-
-        Args:
-            original_szcp: The original SZCP graph head
-            lowered_lzcp: The lowered LZCP graph head
-        """
-        visited_szcp = {}
-        visited_lzcp = {}
-
-        def traverse_and_compare(szcp_node, lzcp_node, visited_s, visited_l):
-            # Handle terminal cases
-            if szcp_node is None and lzcp_node is None:
-                return True
-            if szcp_node is None or lzcp_node is None:
-                return False
-
-            # Cycle detection
-            szcp_id = id(szcp_node)
-            lzcp_id = id(lzcp_node)
-
-            if szcp_id in visited_s:
-                return lzcp_id in visited_l and visited_s[szcp_id] == visited_l[lzcp_id]
-
-            # Mark as visited with same visit number
-            visit_count = len(visited_s)
-            visited_s[szcp_id] = visit_count
-            visited_l[lzcp_id] = visit_count
-
-            # Compare essential node properties
-            if not self._nodes_essentially_equal(szcp_node, lzcp_node):
-                return False
-
-            # Recursively check graph structure
-            return (traverse_and_compare(szcp_node.next_zone, lzcp_node.next_zone, visited_s, visited_l) and
-                    traverse_and_compare(szcp_node.jump_zone, lzcp_node.jump_zone, visited_s, visited_l))
-
-        self.assertTrue(traverse_and_compare(original_szcp, lowered_lzcp, visited_szcp, visited_lzcp))
-
-    def _nodes_essentially_equal(self, szcp_node: SZCPNode, lzcp_node: LZCPNode) -> bool:
-        """
-        Compare essential properties between SZCP and LZCP nodes.
-
-        Args:
-            szcp_node: SZCP node with string data
-            lzcp_node: LZCP node with tokenized data
-
-        Returns:
-            True if nodes represent the same logical zone
-        """
-        # Basic properties that should be preserved
-        return (szcp_node.sequence == lzcp_node.sequence and
-                szcp_node.block == lzcp_node.block and
-                szcp_node.timeout == lzcp_node.timeout and
-                szcp_node.input == lzcp_node.input and
-                szcp_node.output == lzcp_node.output and
-                # Jump capability should be preserved
-                szcp_node.has_jump() == lzcp_node.has_jump() and
-                szcp_node.has_tool() == (lzcp_node.tool_callback is not None))
 
     def test_linear_chain_topology(self):
         """Test: A → B → C → Terminal"""
         # Build the graph
-        nodeA = self._create_node(0)
-        nodeB = self._create_node(1)
-        nodeC = self._create_node(2)
-        terminal = self._create_node(3)
+        nodeA = self.create_topology_node(0)
+        nodeB = self.create_topology_node(1)
+        nodeC = self.create_topology_node(2)
+        terminal = self.create_topology_node(3)
 
         nodeA.next_zone = nodeB
         nodeB.next_zone = nodeC
@@ -569,11 +482,11 @@ class TestSZCPNodeGraphTopology(unittest.TestCase):
     def test_simple_branch_topology(self):
         """Test: A → B (jump to D), A → B → C → D → Terminal"""
         # Build the graph
-        nodeA = self._create_node(0)
-        nodeB = self._create_node(1)
-        nodeC = self._create_node(2)
-        nodeD = self._create_node(3)
-        terminal = self._create_node(4)
+        nodeA = self.create_topology_node(0)
+        nodeB = self.create_topology_node(1)
+        nodeC = self.create_topology_node(2)
+        nodeD = self.create_topology_node(3)
+        terminal = self.create_topology_node(4)
 
         # Linear path: A → B → C → D → Terminal
         nodeA.next_zone = nodeB
@@ -603,10 +516,10 @@ class TestSZCPNodeGraphTopology(unittest.TestCase):
     def test_simple_loop_topology(self):
         """Test: A → B → C (jump back to B) → Terminal"""
         # Build the graph
-        nodeA = self._create_node(0)
-        nodeB = self._create_node(1)
-        nodeC = self._create_node(2)
-        terminal = self._create_node(3)
+        nodeA = self.create_topology_node(0)
+        nodeB = self.create_topology_node(1)
+        nodeC = self.create_topology_node(2)
+        terminal = self.create_topology_node(3)
 
         # Linear path: A → B → C → Terminal
         nodeA.next_zone = nodeB
@@ -637,11 +550,11 @@ class TestSZCPNodeGraphTopology(unittest.TestCase):
     def test_convergent_paths_topology(self):
         """Test: A → B → D, A → C → D → Terminal"""
         # Build the graph with convergence
-        nodeA = self._create_node(0)
-        nodeB = self._create_node(1)
-        nodeC = self._create_node(2)
-        nodeD = self._create_node(3)
-        terminal = self._create_node(4)
+        nodeA = self.create_topology_node(0)
+        nodeB = self.create_topology_node(1)
+        nodeC = self.create_topology_node(2)
+        nodeD = self.create_topology_node(3)
+        terminal = self.create_topology_node(4)
 
         # Path 1: A → B → D
         nodeA.next_zone = nodeB
@@ -672,9 +585,9 @@ class TestSZCPNodeGraphTopology(unittest.TestCase):
     def test_cycle_detection_prevents_infinite_recursion(self):
         """Test that lowering with cycles doesn't cause infinite recursion."""
         # Create a cycle: A → B → C → B
-        nodeA = self._create_node(0)
-        nodeB = self._create_node(1)
-        nodeC = self._create_node(2)
+        nodeA = self.create_topology_node(0)
+        nodeB = self.create_topology_node(1)
+        nodeC = self.create_topology_node(2)
 
         # Create the cycle
         nodeA.next_zone = nodeB
@@ -696,36 +609,15 @@ class TestSZCPNodeGraphTopology(unittest.TestCase):
         self.assertEqual(nodeB_lowered, nodeB_from_cycle)
 
 
-class TestSZCPNodeErrorHandling(unittest.TestCase):
+class TestSZCPNodeErrorHandling(BaseSZCPNodeTest):
     """Test error handling and exception propagation."""
-
-    def setUp(self):
-        """Set up test fixtures."""
-        self.mock_tokenizer = Mock(spec=TokenizerInterface)
-        self.mock_tokenizer.tokenize = Mock()
-
-        self.mock_tag_converter = Mock(spec=TagConverter)
-        self.mock_tag_converter.tensorize = Mock()
-
-        self.tool_registry = {}
-
-        self.base_node_data = {
-            'sequence': 'error_sequence',
-            'block': 5,
-            'text': 'Test text',
-            'zone_advance_str': '[Answer]',
-            'tags': ['Training'],
-            'timeout': 1000,
-            'input': False,
-            'output': False
-        }
 
     def test_lower_error_propagation(self):
         """Test error propagation when lowering fails."""
         # Make tokenizer fail
         self.mock_tokenizer.tokenize.side_effect = RuntimeError("Tokenization failed")
 
-        node = SZCPNode(**self.base_node_data)
+        node = self.create_node(sequence='error_sequence', block=5)
 
         with self.assertRaises(GraphLoweringError) as context:
             node.lower(self.mock_tokenizer, self.mock_tag_converter, self.tool_registry)
@@ -739,7 +631,7 @@ class TestSZCPNodeErrorHandling(unittest.TestCase):
         original_error = ValueError("Tag conversion failed")
         self.mock_tag_converter.tensorize.side_effect = original_error
 
-        node = SZCPNode(**self.base_node_data)
+        node = self.create_node(sequence='error_sequence', block=5)
 
         with self.assertRaises(GraphLoweringError) as context:
             node.lower(self.mock_tokenizer, self.mock_tag_converter, self.tool_registry)
@@ -748,32 +640,12 @@ class TestSZCPNodeErrorHandling(unittest.TestCase):
         self.assertIsInstance(context.exception.__cause__, ValueError)
 
 
-class TestSZCPSerialization(unittest.TestCase):
+class TestSZCPSerialization(BaseSZCPNodeTest):
     """Test serialization and deserialization functionality."""
-
-    def setUp(self):
-        """Set up test fixtures."""
-        self.base_node_data = {
-            'sequence': 'test_sequence',
-            'block': 0,
-            'text': 'Test text',
-            'zone_advance_str': '[Answer]',
-            'tags': ['Training'],
-            'timeout': 1000,
-            'input': False,
-            'output': False
-        }
-
-    def _create_node(self, block: int, **overrides) -> SZCPNode:
-        """Helper to create nodes with block number and optional overrides."""
-        node_data = self.base_node_data.copy()
-        node_data['block'] = block
-        node_data.update(overrides)
-        return SZCPNode(**node_data)
 
     def test_single_node_round_trip(self):
         """Test serialize→deserialize round-trip for single node."""
-        node = SZCPNode(**self.base_node_data)
+        node = self.create_node()
 
         # Serialize
         serialized = node.serialize()
@@ -781,32 +653,23 @@ class TestSZCPSerialization(unittest.TestCase):
         # Deserialize
         deserialized = SZCPNode.deserialize(serialized)
 
-        # Verify basic properties match
-        self.assertEqual(deserialized.sequence, node.sequence)
-        self.assertEqual(deserialized.block, node.block)
-        self.assertEqual(deserialized.text, node.text)
-        self.assertEqual(deserialized.zone_advance_str, node.zone_advance_str)
-        self.assertEqual(deserialized.tags, node.tags)
-        self.assertEqual(deserialized.timeout, node.timeout)
-        self.assertEqual(deserialized.input, node.input)
-        self.assertEqual(deserialized.output, node.output)
+        # Verify all properties match (including escape_strs)
+        self.assertTrue(self.nodes_data_equal(node, deserialized))
         self.assertIsNone(deserialized.next_zone)
-        self.assertIsNone(deserialized.jump_advance_str)
         self.assertIsNone(deserialized.jump_zone)
 
     def test_node_with_all_fields(self):
         """Test serialization of node with all optional fields populated."""
-        target_node = self._create_node(1)
+        target_node = self.create_node(block=1)
 
-        node_data = self.base_node_data.copy()
-        node_data['input'] = True
-        node_data['output'] = True
-        node_data['tool_name'] = 'calculator'
-        node_data['jump_advance_str'] = '[Jump]'
-        node_data['jump_zone'] = target_node
-        node_data['next_zone'] = target_node
-
-        node = SZCPNode(**node_data)
+        node = self.create_node(
+            input=True,
+            output=True,
+            tool_name='calculator',
+            jump_advance_str='[Jump]',
+            jump_zone=target_node,
+            next_zone=target_node
+        )
 
         # Serialize and deserialize
         serialized = node.serialize()
@@ -817,21 +680,31 @@ class TestSZCPSerialization(unittest.TestCase):
         self.assertTrue(deserialized.output)
         self.assertEqual(deserialized.tool_name, 'calculator')
         self.assertEqual(deserialized.jump_advance_str, '[Jump]')
+        self.assertEqual(deserialized.escape_strs, ('[Escape]', '[EndEscape]'))  # Verify escape_strs
         self.assertIsNotNone(deserialized.jump_zone)
         self.assertIsNotNone(deserialized.next_zone)
+
+    def test_escape_strs_serialization(self):
+        """Test that escape_strs field is properly serialized and deserialized."""
+        # Test with default escape_strs
+        node1 = self.create_node()
+        serialized1 = node1.serialize()
+        deserialized1 = SZCPNode.deserialize(serialized1)
+        self.assertEqual(deserialized1.escape_strs, ('[Escape]', '[EndEscape]'))
+
+        # Test with custom escape_strs
+        node2 = self.create_node(escape_strs=('[Start]', '[End]'))
+        serialized2 = node2.serialize()
+        deserialized2 = SZCPNode.deserialize(serialized2)
+        self.assertEqual(deserialized2.escape_strs, ('[Start]', '[End]'))
 
     def test_simple_chain_serialization(self):
         """Test serialization of simple A→B→C chain."""
         # Create chain
-        nodeA = self._create_node(0)
-        nodeB = self._create_node(1)
-        nodeC = self._create_node(2)
-
-        nodeA.next_zone = nodeB
-        nodeB.next_zone = nodeC
+        head_node = self.create_node_chain(3)
 
         # Serialize and deserialize
-        serialized = nodeA.serialize()
+        serialized = head_node.serialize()
         deserialized = SZCPNode.deserialize(serialized)
 
         # Verify chain structure preserved
@@ -842,9 +715,9 @@ class TestSZCPSerialization(unittest.TestCase):
 
     def test_jump_reference_preservation(self):
         """Test that jump references are preserved correctly."""
-        nodeA = self._create_node(0)
-        nodeB = self._create_node(1)
-        nodeC = self._create_node(2)
+        nodeA = self.create_topology_node(0)
+        nodeB = self.create_topology_node(1)
+        nodeC = self.create_topology_node(2)
 
         # A → B → C, with B jumping to C
         nodeA.next_zone = nodeB
@@ -866,9 +739,9 @@ class TestSZCPSerialization(unittest.TestCase):
     def test_cycle_serialization(self):
         """Test serialization of graph with cycles."""
         # Create cycle: A → B → C → B
-        nodeA = self._create_node(0)
-        nodeB = self._create_node(1)
-        nodeC = self._create_node(2)
+        nodeA = self.create_topology_node(0)
+        nodeB = self.create_topology_node(1)
+        nodeC = self.create_topology_node(2)
 
         nodeA.next_zone = nodeB
         nodeB.next_zone = nodeC
@@ -893,10 +766,10 @@ class TestSZCPSerialization(unittest.TestCase):
     def test_convergent_paths_serialization(self):
         """Test serialization where multiple paths converge on same node."""
         # A → B → D, A → C → D
-        nodeA = self._create_node(0)
-        nodeB = self._create_node(1)
-        nodeC = self._create_node(2)
-        nodeD = self._create_node(3)
+        nodeA = self.create_topology_node(0)
+        nodeB = self.create_topology_node(1)
+        nodeC = self.create_topology_node(2)
+        nodeD = self.create_topology_node(3)
 
         nodeA.next_zone = nodeB
         nodeB.next_zone = nodeD
@@ -918,7 +791,7 @@ class TestSZCPSerialization(unittest.TestCase):
 
     def test_dictionary_structure_validation(self):
         """Test that serialized format has correct structure."""
-        node = SZCPNode(**self.base_node_data)
+        node = self.create_node()
         serialized = node.serialize()
 
         # Should be dict mapping int indices to node data
@@ -930,11 +803,12 @@ class TestSZCPSerialization(unittest.TestCase):
         self.assertIn('data', node_entry)
         self.assertIn('links', node_entry)
 
-        # Data section should contain node fields
+        # Data section should contain node fields (including escape_strs)
         data = node_entry['data']
         self.assertEqual(data['sequence'], 'test_sequence')
         self.assertEqual(data['block'], 0)
-        self.assertEqual(data['text'], 'Test text')
+        self.assertEqual(data['text'], 'Test resolved text')
+        self.assertEqual(data['escape_strs'], ('[Escape]', '[EndEscape]'))  # Verify escape_strs in serialized data
 
         # Links section should contain reference indices
         links = node_entry['links']
@@ -944,14 +818,9 @@ class TestSZCPSerialization(unittest.TestCase):
     def test_index_assignment_correctness(self):
         """Test that indices are assigned correctly."""
         # Create chain A → B → C
-        nodeA = self._create_node(0)
-        nodeB = self._create_node(1)
-        nodeC = self._create_node(2)
+        head_node = self.create_node_chain(3)
 
-        nodeA.next_zone = nodeB
-        nodeB.next_zone = nodeC
-
-        serialized = nodeA.serialize()
+        serialized = head_node.serialize()
 
         # Should have exactly 3 nodes with indices 0, 1, 2
         self.assertEqual(len(serialized), 3)
@@ -967,9 +836,9 @@ class TestSZCPSerialization(unittest.TestCase):
     def test_round_trip_identity(self):
         """Test that serialize→deserialize produces functionally identical graph."""
         # Create complex graph with jumps and cycles
-        nodeA = self._create_node(0, sequence='seq_A')
-        nodeB = self._create_node(1, sequence='seq_B', input=True)
-        nodeC = self._create_node(2, sequence='seq_C', output=True, tool_name='calc')
+        nodeA = self.create_topology_node(0)
+        nodeB = self.create_topology_node(1)
+        nodeC = self.create_topology_node(2)
 
         # A → B → C, A can jump to C, C cycles back to B
         nodeA.next_zone = nodeB
@@ -979,20 +848,25 @@ class TestSZCPSerialization(unittest.TestCase):
         nodeC.jump_advance_str = '[Loop]'
         nodeC.jump_zone = nodeB
 
+        # Also test various field combinations
+        nodeB.input = True
+        nodeC.output = True
+        nodeC.tool_name = 'calculator'
+
         # Serialize and deserialize
         serialized = nodeA.serialize()
         deserialized = SZCPNode.deserialize(serialized)
 
         # Verify graph structure identity
-        self._verify_graph_identity(nodeA, deserialized)
+        self.verify_graph_identity(nodeA, deserialized)
 
     def test_reference_integrity(self):
         """Test that all object references are correctly preserved."""
         # Create diamond pattern: A → B → D, A → C → D
-        nodeA = self._create_node(0)
-        nodeB = self._create_node(1)
-        nodeC = self._create_node(2)
-        nodeD = self._create_node(3)
+        nodeA = self.create_topology_node(0)
+        nodeB = self.create_topology_node(1)
+        nodeC = self.create_topology_node(2)
+        nodeD = self.create_topology_node(3)
 
         nodeA.next_zone = nodeB
         nodeA.jump_advance_str = '[Jump]'
@@ -1010,7 +884,7 @@ class TestSZCPSerialization(unittest.TestCase):
 
         self.assertIs(path1_D, path2_D)  # Same object identity
 
-    def _verify_graph_identity(self, original: SZCPNode, deserialized: SZCPNode):
+    def verify_graph_identity(self, original: SZCPNode, deserialized: SZCPNode):
         """Helper to verify two graphs have identical structure and data."""
         visited_orig = {}
         visited_deser = {}
@@ -1033,8 +907,8 @@ class TestSZCPSerialization(unittest.TestCase):
             visited_o[orig_id] = visit_count
             visited_d[deser_id] = visit_count
 
-            # Compare node data
-            if not self._nodes_data_equal(orig, deser):
+            # Compare node data (using our updated helper that includes escape_strs)
+            if not self.nodes_data_equal(orig, deser):
                 return False
 
             # Recursively compare linked nodes
@@ -1042,19 +916,6 @@ class TestSZCPSerialization(unittest.TestCase):
                     traverse_and_compare(orig.jump_zone, deser.jump_zone, visited_o, visited_d))
 
         self.assertTrue(traverse_and_compare(original, deserialized, visited_orig, visited_deser))
-
-    def _nodes_data_equal(self, node1: SZCPNode, node2: SZCPNode) -> bool:
-        """Helper to compare data equality between two nodes."""
-        return (node1.sequence == node2.sequence and
-                node1.block == node2.block and
-                node1.text == node2.text and
-                node1.zone_advance_str == node2.zone_advance_str and
-                node1.tags == node2.tags and
-                node1.timeout == node2.timeout and
-                node1.input == node2.input and
-                node1.output == node2.output and
-                node1.jump_advance_str == node2.jump_advance_str and
-                node1.tool_name == node2.tool_name)
 
 
 if __name__ == "__main__":

@@ -12,26 +12,37 @@ Tests cover:
 
 import unittest
 from unittest.mock import Mock
+from typing import Dict, Any, Optional
 
 # Import the modules under test
 from src.workflow_forge.zcp.nodes import RZCPNode, SZCPNode, GraphLoweringError, GraphError
 
 
-class TestRZCPNodeConstruction(unittest.TestCase):
-    """Test RZCPNode creation and validation."""
+class BaseRZCPNodeTest(unittest.TestCase):
+    """Base test class with common setup and helper methods."""
 
     def setUp(self):
-        """Set up test fixtures."""
+        """Set up common test fixtures."""
         # Create mock sampling callback
         self.mock_sampling_callback = Mock()
         self.mock_sampling_callback.return_value = "resolved text"
 
-        # Basic valid node data
-        self.valid_node_data = {
+    def get_valid_node_data(self, **overrides) -> Dict[str, Any]:
+        """
+        Return valid node data for testing, with optional field overrides.
+
+        Args:
+            **overrides: Fields to override in the base node data
+
+        Returns:
+            Dictionary of valid RZCPNode constructor arguments
+        """
+        base_data = {
             'sequence': 'test_sequence',
             'block': 0,
             'zone_advance_str': '[Answer]',
-            'tags': ['Training', 'Correct'],
+            'escape_strs': ('[Escape]', '[EndEscape]'),
+            'tags': ['Training'],
             'timeout': 1000,
             'sampling_callback': self.mock_sampling_callback,
             'input': False,
@@ -41,15 +52,113 @@ class TestRZCPNodeConstruction(unittest.TestCase):
             'jump_zone': None,
             'tool_name': None
         }
+        base_data.update(overrides)
+        return base_data
+
+    def create_node(self, **overrides) -> RZCPNode:
+        """
+        Create an RZCPNode with valid data and optional overrides.
+
+        Args:
+            **overrides: Fields to override in the base node data
+
+        Returns:
+            Configured RZCPNode instance
+        """
+        return RZCPNode(**self.get_valid_node_data(**overrides))
+
+    def create_node_chain(self, length: int, **base_overrides) -> RZCPNode:
+        """
+        Create a chain of linked RZCPNodes.
+
+        Args:
+            length: Number of nodes in the chain
+            **base_overrides: Common overrides to apply to all nodes
+
+        Returns:
+            Head node of the chain
+        """
+        if length < 1:
+            raise ValueError("Chain length must be at least 1")
+
+        # Create nodes
+        nodes = []
+        for i in range(length):
+            # Create separate mock for each node to avoid shared state
+            mock_callback = Mock(return_value=f"resolved text {i}")
+            node_overrides = base_overrides.copy()
+            node_overrides.update({'block': i, 'sampling_callback': mock_callback})
+            node = self.create_node(**node_overrides)
+            nodes.append(node)
+
+        # Link them
+        for i in range(length - 1):
+            nodes[i].next_zone = nodes[i + 1]
+
+        return nodes[0]
+
+    def create_jump_node(self, target_node: RZCPNode, jump_str: str = '[Jump]', **overrides) -> RZCPNode:
+        """
+        Create an RZCPNode with jump capability.
+
+        Args:
+            target_node: The node to jump to
+            jump_str: The jump advance string
+            **overrides: Additional field overrides
+
+        Returns:
+            RZCPNode with jump capability configured
+        """
+        jump_overrides = {
+            'jump_advance_str': jump_str,
+            'jump_zone': target_node
+        }
+        jump_overrides.update(overrides)
+        return self.create_node(**jump_overrides)
+
+    def assert_szcp_node_properties(self, szcp_node: SZCPNode, expected_sequence: str,
+                                  expected_block: int, expected_timeout: int = 1000):
+        """
+        Assert common properties of an SZCPNode.
+
+        Args:
+            szcp_node: The SZCPNode to validate
+            expected_sequence: Expected sequence name
+            expected_block: Expected block number
+            expected_timeout: Expected timeout value
+        """
+        self.assertIsInstance(szcp_node, SZCPNode)
+        self.assertEqual(szcp_node.sequence, expected_sequence)
+        self.assertEqual(szcp_node.block, expected_block)
+        self.assertEqual(szcp_node.timeout, expected_timeout)
+        self.assertEqual(szcp_node.escape_strs, ('[Escape]', '[EndEscape]'))
+
+    def assert_graph_error_context(self, context_manager, expected_sequence: str, expected_block: int):
+        """
+        Assert that a GraphError has the expected context information.
+
+        Args:
+            context_manager: The exception context manager
+            expected_sequence: Expected sequence name in error
+            expected_block: Expected block number in error
+        """
+        self.assertEqual(context_manager.exception.sequence, expected_sequence)
+        self.assertEqual(context_manager.exception.block, expected_block)
+
+
+class TestRZCPNodeConstruction(BaseRZCPNodeTest):
+    """Test RZCPNode creation and validation."""
 
     def test_valid_node_creation(self):
         """Test creating a valid RZCPNode with all required fields."""
-        node = RZCPNode(**self.valid_node_data)
+        node_data = self.get_valid_node_data()
+        node = RZCPNode(**node_data)
 
         self.assertEqual(node.sequence, 'test_sequence')
         self.assertEqual(node.block, 0)
         self.assertEqual(node.zone_advance_str, '[Answer]')
-        self.assertEqual(node.tags, ['Training', 'Correct'])
+        self.assertEqual(node.escape_strs, ('[Escape]', '[EndEscape]'))
+        self.assertEqual(node.tags, ['Training'])
         self.assertEqual(node.timeout, 1000)
         self.assertFalse(node.input)
         self.assertFalse(node.output)
@@ -62,207 +171,125 @@ class TestRZCPNodeConstruction(unittest.TestCase):
     def test_input_output_flags(self):
         """Test nodes with input/output flags set."""
         # Test input node
-        input_data = self.valid_node_data.copy()
-        input_data['input'] = True
-        input_node = RZCPNode(**input_data)
+        input_node = self.create_node(input=True)
         self.assertTrue(input_node.input)
 
         # Test output node
-        output_data = self.valid_node_data.copy()
-        output_data['output'] = True
-        output_node = RZCPNode(**output_data)
+        output_node = self.create_node(output=True)
         self.assertTrue(output_node.output)
 
     def test_tool_name_assignment(self):
         """Test node with tool name."""
-        tool_data = self.valid_node_data.copy()
-        tool_data['tool_name'] = 'calculator'
-        tool_node = RZCPNode(**tool_data)
+        tool_node = self.create_node(tool_name='calculator')
         self.assertEqual(tool_node.tool_name, 'calculator')
 
     def test_post_init_jump_consistency_both_present(self):
         """Test __post_init__ validation when both jump_advance_str and jump_zone are present."""
-        target_node = RZCPNode(**self.valid_node_data)
-
-        node_data = self.valid_node_data.copy()
-        node_data['jump_advance_str'] = '[Jump]'
-        node_data['jump_zone'] = target_node
+        target_node = self.create_node()
+        jump_node = self.create_jump_node(target_node)
 
         # Should not raise exception
-        node = RZCPNode(**node_data)
-        self.assertIsNotNone(node.jump_advance_str)
-        self.assertIsNotNone(node.jump_zone)
+        self.assertIsNotNone(jump_node.jump_advance_str)
+        self.assertIsNotNone(jump_node.jump_zone)
 
     def test_post_init_jump_consistency_mismatch_str_only(self):
         """Test __post_init__ validation fails when only jump_advance_str is present."""
-        node_data = self.valid_node_data.copy()
-        node_data['jump_advance_str'] = '[Jump]'
-        # jump_zone remains None
-
         with self.assertRaises(GraphError) as context:
-            RZCPNode(**node_data)
+            self.create_node(jump_advance_str='[Jump]')  # jump_zone remains None
 
-        self.assertEqual(context.exception.sequence, 'test_sequence')
-        self.assertEqual(context.exception.block, 0)
+        self.assert_graph_error_context(context, 'test_sequence', 0)
 
     def test_post_init_jump_consistency_mismatch_zone_only(self):
         """Test __post_init__ validation fails when only jump_zone is present."""
-        target_node = RZCPNode(**self.valid_node_data)
-
-        node_data = self.valid_node_data.copy()
-        node_data['jump_zone'] = target_node
-        # jump_advance_str remains None
+        target_node = self.create_node()
 
         with self.assertRaises(GraphError) as context:
-            RZCPNode(**node_data)
+            self.create_node(jump_zone=target_node)  # jump_advance_str remains None
 
-        self.assertEqual(context.exception.sequence, 'test_sequence')
-        self.assertEqual(context.exception.block, 0)
+        self.assert_graph_error_context(context, 'test_sequence', 0)
 
 
-class TestRZCPNodeStateQueries(unittest.TestCase):
+class TestRZCPNodeStateQueries(BaseRZCPNodeTest):
     """Test state query methods."""
-
-    def setUp(self):
-        """Set up test fixtures."""
-        self.mock_callback = Mock(return_value="resolved text")
-
-        self.base_node_data = {
-            'sequence': 'test_sequence',
-            'block': 0,
-            'zone_advance_str': '[Answer]',
-            'tags': ['Training'],
-            'timeout': 1000,
-            'sampling_callback': self.mock_callback,
-            'input': False,
-            'output': False,
-            'next_zone': None,
-            'jump_advance_str': None,
-            'jump_zone': None
-        }
 
     def test_has_jump_false(self):
         """Test has_jump returns False when no jump capability."""
-        node = RZCPNode(**self.base_node_data)
+        node = self.create_node()
         self.assertFalse(node.has_jump())
 
     def test_has_jump_true(self):
         """Test has_jump returns True when jump capability exists."""
-        target_node = RZCPNode(**self.base_node_data)
-
-        node_data = self.base_node_data.copy()
-        node_data['jump_advance_str'] = '[Jump]'
-        node_data['jump_zone'] = target_node
-
-        node = RZCPNode(**node_data)
-        self.assertTrue(node.has_jump())
+        target_node = self.create_node()
+        jump_node = self.create_jump_node(target_node)
+        self.assertTrue(jump_node.has_jump())
 
     def test_is_terminal_true(self):
         """Test is_terminal returns True for terminal nodes."""
-        node = RZCPNode(**self.base_node_data)
+        node = self.create_node()
         # No next_zone, no jump_zone
         self.assertTrue(node.is_terminal())
 
     def test_is_terminal_false_has_next(self):
         """Test is_terminal returns False when node has next_zone."""
-        next_node = RZCPNode(**self.base_node_data)
-
-        node_data = self.base_node_data.copy()
-        node_data['next_zone'] = next_node
-
-        node = RZCPNode(**node_data)
+        next_node = self.create_node()
+        node = self.create_node(next_zone=next_node)
         self.assertFalse(node.is_terminal())
 
     def test_is_terminal_false_has_jump(self):
         """Test is_terminal returns False when node has jump capability."""
-        target_node = RZCPNode(**self.base_node_data)
-
-        node_data = self.base_node_data.copy()
-        node_data['jump_advance_str'] = '[Jump]'
-        node_data['jump_zone'] = target_node
-
-        node = RZCPNode(**node_data)
-        self.assertFalse(node.is_terminal())
+        target_node = self.create_node()
+        jump_node = self.create_jump_node(target_node)
+        self.assertFalse(jump_node.is_terminal())
 
     def test_is_input_zone(self):
         """Test is_input_zone reflects input flag."""
         # Test False
-        node = RZCPNode(**self.base_node_data)
+        node = self.create_node()
         self.assertFalse(node.is_input_zone())
 
         # Test True
-        node_data = self.base_node_data.copy()
-        node_data['input'] = True
-        input_node = RZCPNode(**node_data)
+        input_node = self.create_node(input=True)
         self.assertTrue(input_node.is_input_zone())
 
     def test_is_output_zone(self):
         """Test is_output_zone reflects output flag."""
         # Test False
-        node = RZCPNode(**self.base_node_data)
+        node = self.create_node()
         self.assertFalse(node.is_output_zone())
 
         # Test True
-        node_data = self.base_node_data.copy()
-        node_data['output'] = True
-        output_node = RZCPNode(**node_data)
+        output_node = self.create_node(output=True)
         self.assertTrue(output_node.is_output_zone())
 
     def test_has_tool_false(self):
         """Test has_tool returns False when no tool name."""
-        node = RZCPNode(**self.base_node_data)
+        node = self.create_node()
         self.assertFalse(node.has_tool())
 
     def test_has_tool_true(self):
         """Test has_tool returns True when tool name exists."""
-        node_data = self.base_node_data.copy()
-        node_data['tool_name'] = 'calculator'
-
-        node = RZCPNode(**node_data)
-        self.assertTrue(node.has_tool())
+        tool_node = self.create_node(tool_name='calculator')
+        self.assertTrue(tool_node.has_tool())
 
 
-class TestRZCPNodeLinkedList(unittest.TestCase):
+class TestRZCPNodeLinkedList(BaseRZCPNodeTest):
     """Test linked list operations."""
-
-    def setUp(self):
-        """Set up test fixtures."""
-        self.mock_callback = Mock(return_value="resolved text")
-
-        self.base_node_data = {
-            'sequence': 'test_sequence',
-            'block': 0,
-            'zone_advance_str': '[Answer]',
-            'tags': ['Training'],
-            'timeout': 1000,
-            'sampling_callback': self.mock_callback,
-            'input': False,
-            'output': False
-        }
 
     def test_get_last_node_single(self):
         """Test get_last_node with single node returns self."""
-        node = RZCPNode(**self.base_node_data)
-
+        node = self.create_node()
         last_node = node.get_last_node()
         self.assertEqual(last_node, node)
 
     def test_get_last_node_chain(self):
         """Test get_last_node traverses to end of chain."""
-        # Create three nodes
-        node1 = RZCPNode(**self.base_node_data)
+        # Create three-node chain
+        head_node = self.create_node_chain(3)
 
-        node2_data = self.base_node_data.copy()
-        node2_data['block'] = 1
-        node2 = RZCPNode(**node2_data)
-
-        node3_data = self.base_node_data.copy()
-        node3_data['block'] = 2
-        node3 = RZCPNode(**node3_data)
-
-        # Link them: node1 -> node2 -> node3
-        node1.next_zone = node2
-        node2.next_zone = node3
+        # Navigate to get individual nodes
+        node1 = head_node
+        node2 = head_node.next_zone
+        node3 = head_node.next_zone.next_zone
 
         # get_last_node should return node3 from any starting point
         self.assertEqual(node1.get_last_node(), node3)
@@ -271,11 +298,8 @@ class TestRZCPNodeLinkedList(unittest.TestCase):
 
     def test_attach_single_source(self):
         """Test attach method connects source node to this node."""
-        target = RZCPNode(**self.base_node_data)
-
-        source_data = self.base_node_data.copy()
-        source_data['block'] = 1
-        source = RZCPNode(**source_data)
+        target = self.create_node()
+        source = self.create_node(block=1)
 
         # Attach source to target
         result = target.attach([source])
@@ -288,13 +312,11 @@ class TestRZCPNodeLinkedList(unittest.TestCase):
 
     def test_attach_multiple_sources(self):
         """Test attach method connects multiple source nodes."""
-        target = RZCPNode(**self.base_node_data)
+        target = self.create_node()
 
         sources = []
         for i in range(3):
-            source_data = self.base_node_data.copy()
-            source_data['block'] = i + 1
-            sources.append(RZCPNode(**source_data))
+            sources.append(self.create_node(block=i + 1))
 
         # Attach all sources to target
         result = target.attach(sources)
@@ -307,41 +329,21 @@ class TestRZCPNodeLinkedList(unittest.TestCase):
             self.assertEqual(source.next_zone, target)
 
 
-class TestRZCPNodeBasicLowering(unittest.TestCase):
+class TestRZCPNodeBasicLowering(BaseRZCPNodeTest):
     """Test basic lowering operations."""
 
-    def setUp(self):
-        """Set up test fixtures."""
-        self.mock_callback = Mock(return_value="resolved prompt text")
-
-        self.base_node_data = {
-            'sequence': 'test_sequence',
-            'block': 0,
-            'zone_advance_str': '[Answer]',
-            'tags': ['Training', 'Correct'],
-            'timeout': 1000,
-            'sampling_callback': self.mock_callback,
-            'input': False,
-            'output': False,
-            'next_zone': None,
-            'jump_advance_str': None,
-            'jump_zone': None,
-            'tool_name': None
-        }
-
     def test_lower_node_success(self):
-        """Test _lower_node creates valid SZCPNode."""
-        node = RZCPNode(**self.base_node_data)
+        """Test lower() creates valid SZCPNode."""
+        node = self.create_node(tags=['Training', 'Correct'])
 
         result = node.lower()
 
-        # Verify result type and basic properties
-        self.assertIsInstance(result, SZCPNode)
-        self.assertEqual(result.sequence, 'test_sequence')
-        self.assertEqual(result.block, 0)
+        # Verify result using helper assertion
+        self.assert_szcp_node_properties(result, 'test_sequence', 0)
+
+        # Verify specific properties
         self.assertEqual(result.zone_advance_str, '[Answer]')
         self.assertEqual(result.tags, ['Training', 'Correct'])
-        self.assertEqual(result.timeout, 1000)
         self.assertFalse(result.input)
         self.assertFalse(result.output)
         self.assertIsNone(result.next_zone)
@@ -350,44 +352,35 @@ class TestRZCPNodeBasicLowering(unittest.TestCase):
         self.assertIsNone(result.tool_name)
 
         # Verify resolved text from sampling callback
-        self.assertEqual(result.text, "resolved prompt text")
+        self.assertEqual(result.text, "resolved text")
 
         # Verify sampling callback was called
-        self.mock_callback.assert_called_once()
+        self.mock_sampling_callback.assert_called_once()
 
     def test_lower_node_with_jump(self):
-        """Test _lower_node preserves jump information."""
-        target_node = RZCPNode(**self.base_node_data)
+        """Test lower() preserves jump information."""
+        target_node = self.create_node()
+        jump_node = self.create_jump_node(target_node)
 
-        node_data = self.base_node_data.copy()
-        node_data['jump_advance_str'] = '[Jump]'
-        node_data['jump_zone'] = target_node
-
-        node = RZCPNode(**node_data)
-        result = node.lower()
+        result = jump_node.lower()
 
         # Verify jump string preserved
-        print(type(result.jump_advance_str))
         self.assertEqual(result.jump_advance_str, '[Jump]')
         # Verify jump_zone was lowered and connected
         self.assertIsNotNone(result.jump_zone)
         self.assertIsInstance(result.jump_zone, SZCPNode)
 
     def test_lower_node_with_tool(self):
-        """Test _lower_node preserves tool information."""
-        node_data = self.base_node_data.copy()
-        node_data['tool_name'] = 'calculator'
-
-        node = RZCPNode(**node_data)
-        result = node.lower()
+        """Test lower() preserves tool information."""
+        tool_node = self.create_node(tool_name='calculator')
+        result = tool_node.lower()
 
         # Verify tool name preserved
         self.assertEqual(result.tool_name, 'calculator')
 
     def test_lower_single_node(self):
         """Test lower() method with single node."""
-        node = RZCPNode(**self.base_node_data)
-
+        node = self.create_node()
         result = node.lower()
 
         # Should return SZCPNode
@@ -397,75 +390,41 @@ class TestRZCPNodeBasicLowering(unittest.TestCase):
 
     def test_lower_chain_of_nodes(self):
         """Test lower() method with chain of nodes."""
-        # Create two nodes with different mock callbacks
-        mock_callback1 = Mock(return_value="first node text")
-        mock_callback2 = Mock(return_value="second node text")
-
-        node1 = RZCPNode(**self.base_node_data)
-        node1.sampling_callback = mock_callback1
-
-        node2_data = self.base_node_data.copy()
-        node2_data['block'] = 1
-        node2_data['sampling_callback'] = mock_callback2
-        node2 = RZCPNode(**node2_data)
-
-        # Link them
-        node1.next_zone = node2
+        # Create two-node chain with different callbacks
+        head_node = self.create_node_chain(2)
 
         # Lower the chain
-        result_head = node1.lower()
+        result_head = head_node.lower()
 
         # Verify chain structure is preserved
-        self.assertIsInstance(result_head, SZCPNode)
-        self.assertEqual(result_head.block, 0)
-        self.assertEqual(result_head.text, "first node text")
+        self.assert_szcp_node_properties(result_head, 'test_sequence', 0)
 
         self.assertIsNotNone(result_head.next_zone)
-        self.assertIsInstance(result_head.next_zone, SZCPNode)
-        self.assertEqual(result_head.next_zone.block, 1)
-        self.assertEqual(result_head.next_zone.text, "second node text")
+        self.assert_szcp_node_properties(result_head.next_zone, 'test_sequence', 1)
 
         self.assertIsNone(result_head.next_zone.next_zone)
 
-        # Verify both callbacks were called
-        mock_callback1.assert_called_once()
-        mock_callback2.assert_called_once()
+        # Verify resolved text from different callbacks
+        self.assertEqual(result_head.text, "resolved text 0")
+        self.assertEqual(result_head.next_zone.text, "resolved text 1")
 
 
-class TestRZCPNodeGraphTopology(unittest.TestCase):
+class TestRZCPNodeGraphTopology(BaseRZCPNodeTest):
     """Test graph topology lowering - the mathematical focus."""
 
-    def setUp(self):
-        """Set up test fixtures."""
-        self.mock_callback = Mock(return_value="resolved text")
-
-        self.base_node_data = {
-            'sequence': 'test_sequence',
-            'zone_advance_str': '[Answer]',
-            'tags': ['Training'],
-            'timeout': 1000,
-            'sampling_callback': self.mock_callback,
-            'input': False,
-            'output': False,
-            'next_zone': None,
-            'jump_advance_str': None,
-            'jump_zone': None
-        }
-
-    def _create_node(self, block: int, **overrides) -> RZCPNode:
-        """Helper to create nodes with block number and optional overrides."""
-        node_data = self.base_node_data.copy()
-        node_data['block'] = block
-        node_data.update(overrides)
-        return RZCPNode(**node_data)
+    def _create_topology_node(self, block: int, **overrides) -> RZCPNode:
+        """Helper to create nodes for topology tests with unique callbacks."""
+        mock_callback = Mock(return_value=f"text_{block}")
+        overrides.update({'block': block, 'sampling_callback': mock_callback})
+        return self.create_node(**overrides)
 
     def test_linear_chain_topology(self):
         """Test: A → B → C → Terminal"""
         # Build the graph
-        nodeA = self._create_node(0)
-        nodeB = self._create_node(1)
-        nodeC = self._create_node(2)
-        terminal = self._create_node(3)
+        nodeA = self._create_topology_node(0)
+        nodeB = self._create_topology_node(1)
+        nodeC = self._create_topology_node(2)
+        terminal = self._create_topology_node(3)
 
         nodeA.next_zone = nodeB
         nodeB.next_zone = nodeC
@@ -484,11 +443,11 @@ class TestRZCPNodeGraphTopology(unittest.TestCase):
     def test_simple_branch_topology(self):
         """Test: A → B (jump to D), A → B → C → D → Terminal"""
         # Build the graph
-        nodeA = self._create_node(0)
-        nodeB = self._create_node(1)
-        nodeC = self._create_node(2)
-        nodeD = self._create_node(3)
-        terminal = self._create_node(4)
+        nodeA = self._create_topology_node(0)
+        nodeB = self._create_topology_node(1)
+        nodeC = self._create_topology_node(2)
+        nodeD = self._create_topology_node(3)
+        terminal = self._create_topology_node(4)
 
         # Linear path: A → B → C → D → Terminal
         nodeA.next_zone = nodeB
@@ -518,10 +477,10 @@ class TestRZCPNodeGraphTopology(unittest.TestCase):
     def test_simple_loop_topology(self):
         """Test: A → B → C (jump back to B) → Terminal"""
         # Build the graph
-        nodeA = self._create_node(0)
-        nodeB = self._create_node(1)
-        nodeC = self._create_node(2)
-        terminal = self._create_node(3)
+        nodeA = self._create_topology_node(0)
+        nodeB = self._create_topology_node(1)
+        nodeC = self._create_topology_node(2)
+        terminal = self._create_topology_node(3)
 
         # Linear path: A → B → C → Terminal
         nodeA.next_zone = nodeB
@@ -552,11 +511,11 @@ class TestRZCPNodeGraphTopology(unittest.TestCase):
     def test_convergent_paths_topology(self):
         """Test: A → B → D, A → C → D → Terminal"""
         # Build the graph with convergence
-        nodeA = self._create_node(0)
-        nodeB = self._create_node(1)
-        nodeC = self._create_node(2)
-        nodeD = self._create_node(3)
-        terminal = self._create_node(4)
+        nodeA = self._create_topology_node(0)
+        nodeB = self._create_topology_node(1)
+        nodeC = self._create_topology_node(2)
+        nodeD = self._create_topology_node(3)
+        terminal = self._create_topology_node(4)
 
         # Path 1: A → B → D
         nodeA.next_zone = nodeB
@@ -587,9 +546,9 @@ class TestRZCPNodeGraphTopology(unittest.TestCase):
     def test_cycle_detection_prevents_infinite_recursion(self):
         """Test that lowering with cycles doesn't cause infinite recursion."""
         # Create a cycle: A → B → C → B
-        nodeA = self._create_node(0)
-        nodeB = self._create_node(1)
-        nodeC = self._create_node(2)
+        nodeA = self._create_topology_node(0)
+        nodeB = self._create_topology_node(1)
+        nodeC = self._create_topology_node(2)
 
         # Create the cycle
         nodeA.next_zone = nodeB
@@ -611,47 +570,31 @@ class TestRZCPNodeGraphTopology(unittest.TestCase):
         self.assertEqual(nodeB_lowered, nodeB_from_cycle)
 
 
-class TestRZCPNodeErrorHandling(unittest.TestCase):
+class TestRZCPNodeErrorHandling(BaseRZCPNodeTest):
     """Test error handling and exception propagation."""
-
-    def setUp(self):
-        """Set up test fixtures."""
-        self.mock_callback = Mock(return_value="resolved text")
-
-        self.base_node_data = {
-            'sequence': 'error_sequence',
-            'block': 5,
-            'zone_advance_str': '[Answer]',
-            'tags': ['Training'],
-            'timeout': 1000,
-            'sampling_callback': self.mock_callback,
-            'input': False,
-            'output': False
-        }
 
     def test_post_init_validation_error_context(self):
         """Test that __post_init__ validation includes proper context."""
-        node_data = self.base_node_data.copy()
-        node_data['jump_advance_str'] = '[Jump]'
-        # Missing jump_zone
-
         with self.assertRaises(GraphError) as context:
-            RZCPNode(**node_data)
+            self.create_node(
+                sequence='error_sequence',
+                block=5,
+                jump_advance_str='[Jump]'  # Missing jump_zone
+            )
 
-        self.assertEqual(context.exception.sequence, "error_sequence")
-        self.assertEqual(context.exception.block, 5)
+        self.assert_graph_error_context(context, "error_sequence", 5)
 
     def test_sampling_callback_failure(self):
         """Test error handling when sampling callback fails."""
         failing_callback = Mock(side_effect=RuntimeError("Sampling failed"))
-
-        node_data = self.base_node_data.copy()
-        node_data['sampling_callback'] = failing_callback
-
-        node = RZCPNode(**node_data)
+        node = self.create_node(
+            sequence='error_sequence',
+            block=5,
+            sampling_callback=failing_callback
+        )
 
         with self.assertRaises(GraphLoweringError) as context:
-            node._lower_node()
+            node.lower()
 
         self.assertEqual(context.exception.sequence, "error_sequence")
         self.assertEqual(context.exception.block, 5)
@@ -660,13 +603,14 @@ class TestRZCPNodeErrorHandling(unittest.TestCase):
     def test_lower_chain_error_propagation(self):
         """Test error propagation when lowering chains."""
         # Create chain where second node will fail
-        node1 = RZCPNode(**self.base_node_data)
-
         failing_callback = Mock(side_effect=RuntimeError("Node2 failed"))
-        node2_data = self.base_node_data.copy()
-        node2_data['block'] = 6
-        node2_data['sampling_callback'] = failing_callback
-        node2 = RZCPNode(**node2_data)
+
+        node1 = self.create_node(sequence='error_sequence', block=5)
+        node2 = self.create_node(
+            sequence='error_sequence',
+            block=6,
+            sampling_callback=failing_callback
+        )
 
         node1.next_zone = node2
 

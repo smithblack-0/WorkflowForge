@@ -18,7 +18,7 @@ from typing import Optional, List, Callable, Dict, Any, Tuple
 from src.workflow_forge.backend.tag_converter import TagConverter
 from ..tokenizer_interface import TokenizerInterface
 from ..resources import AbstractResource
-
+from ..parsing.config_parsing import Config
 ## Setup the error banks
 
 class GraphLoweringError(Exception):
@@ -145,12 +145,14 @@ class ZCPNode:
 
     def _lower_node(self,
                     resources: Dict[str, AbstractResource],
+                    config: Config
                     ) -> 'RZCPNode':
         """
         Convert this zcp node to RZCP representation.
 
         Args:
             resources: The resources dictionary
+            config: The config.
 
         Returns:
             RZCPNode with callback for sampling text.
@@ -167,6 +169,7 @@ class ZCPNode:
                 sequence=self.sequence,
                 block=self.block,
                 zone_advance_str=self.zone_advance_str,
+                escape_strs=config.escape_patterns,
                 tags=self.tags,
                 timeout=self.timeout,
                 sampling_callback=sampling_callback,
@@ -182,6 +185,7 @@ class ZCPNode:
 
     def lower(self,
               resources: Dict[str, AbstractResource],
+              config: Config,
               ) -> 'RZCPNode':
         """
         Walk through entire graph and lower all nodes to RZCP, maintaining linkage.
@@ -189,13 +193,13 @@ class ZCPNode:
 
         Args:
             resources: The resolved resources that can now be used to lower this further.
-
+            config: The config.
         Returns:
             Head of the lowered RZCP graph
         """
-        lowered_self = self._lower_node(resources)
+        lowered_self = self._lower_node(resources, config)
         if self.next_zone is not None:
-            next_lowered = self.next_zone.lower(resources)
+            next_lowered = self.next_zone.lower(resources, config)
             lowered_self.next_zone = next_lowered
         return lowered_self
 
@@ -235,6 +239,7 @@ class RZCPNode:
     tags: List[str]
     timeout: int
     sampling_callback: Callable[[], str]
+    escape_strs: Tuple[str, str]
     input: bool = False
     output: bool = False
     jump_advance_str: Optional[str] = None
@@ -301,6 +306,7 @@ class RZCPNode:
                 block=self.block,
                 text=resolved_text,
                 zone_advance_str=self.zone_advance_str,
+                escape_strs=self.escape_strs,
                 tags=self.tags,
                 timeout=self.timeout,
                 input=self.input,
@@ -403,6 +409,7 @@ class SZCPNode:
     block: int
     text: str
     zone_advance_str: str
+    escape_strs: Tuple[str, str]
     tags: List[str]
     timeout: int
     input: bool
@@ -480,12 +487,14 @@ class SZCPNode:
                 tool = None
 
             tags = tag_converter.tensorize(self.tags)
+            escape_tokens = tuple(tokenizer.tokenize(item) for item in self.escape_strs)
 
             node = LZCPNode(
                 sequence= self.sequence,
                 block = self.block,
                 tokens = tokens,
                 zone_advance_tokens = zone_advance_tokens,
+                escape_tokens = escape_tokens,
                 tags = tags,
                 timeout = self.timeout,
                 input = self.input,
@@ -604,6 +613,7 @@ class SZCPNode:
             "input": self.input,
             "output": self.output,
             "jump_advance_str": self.jump_advance_str,
+            "escape_strs" : self.escape_strs,
             "tool_name" : self.tool_name,
         }
         links = {
@@ -725,6 +735,7 @@ class LZCPNode:
     block: int
     tokens: np.ndarray  # Shape: (sequence_length,) - token IDs
     zone_advance_tokens: np.ndarray
+    escape_tokens: Tuple[np.ndarray, np.ndarray]
     tags: np.ndarray  # Shape: (num_tags,) - boolean array for tag membership
     timeout: int
     input: bool
@@ -773,6 +784,15 @@ class LZCPNode:
                 raise ValueError("tokens must be a 1D array")
             if self.tokens.dtype not in [np.int32, np.int64]:
                 raise ValueError("tokens must have integer dtype")
+
+            # Validate escape patterns
+            if not isinstance(self.escape_tokens, tuple):
+                raise TypeError("escape_tokens must be a tuple")
+            if len(self.escape_tokens) != 2:
+                raise TypeError("escape_tokens must have length 2")
+            for item in self.escape_tokens:
+                if not isinstance(item, np.ndarray):
+                    raise TypeError("escape_tokens must have numpy arrays")
 
         except Exception as err:
             raise GraphError(f"LZCP node validation failed",
