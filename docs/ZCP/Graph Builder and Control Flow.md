@@ -20,4 +20,4 @@ The graph builder node class is a primary class designed to support this mechani
 ## Control Flow Actions
 
 * run: Simply attaches a forward reference 
-* jumps: Jump is supported by means of attach
+* jumps: Jump is supported by means of attach.

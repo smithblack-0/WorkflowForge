@@ -168,6 +168,6 @@ class GraphBuilderNode:
         :param node: The target node to attach myself to
         """
 
-        if node.head is None:
+        if self.head is None:
             raise GraphBuilderException("Attempted to attach to a node that was never extended")
-        self._resolve_forward_references(sequence=node.head)
+        node.extend(self.head)

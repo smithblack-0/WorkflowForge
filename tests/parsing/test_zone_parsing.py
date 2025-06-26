@@ -196,8 +196,8 @@ class TestBasicFunctionality(BaseZoneParserTest):
         final_text = result.construction_callback({})
         self.assertEqual(final_text, "What is AI?")
 
-    def test_zone_with_single_placeholder(self):
-        """Test zone with single placeholder and resource spec."""
+    def test_zone_with_single_placeholder_default_type(self):
+        """Test zone with single placeholder using default type (standard)."""
         config = self.get_valid_config()
         placeholders = {
             "feedback": {
@@ -212,12 +212,12 @@ class TestBasicFunctionality(BaseZoneParserTest):
 
         result = parse_zone(zone_info, config)
 
-        # Verify resource specs
+        # Verify resource specs (should default to "standard")
         expected_spec = {
             "feedback": {
                 "name": "feedback_resource",
                 "arguments": {"num_samples": 3},
-                "type": "default"
+                "type": "standard"
             }
         }
         self.assert_resource_specs_equal(result.resource_specs, expected_spec)
@@ -257,15 +257,41 @@ class TestBasicFunctionality(BaseZoneParserTest):
             "principle": {
                 "name": "constitution_overview",
                 "arguments": None,
-                "type": "default"
+                "type": "standard"
             },
             "details": {
                 "name": "constitution_details",
                 "arguments": {"num_samples": 2},
-                "type": "default"
+                "type": "standard"
             }
         }
         self.assert_resource_specs_equal(result.resource_specs, expected_specs)
+
+    def test_zone_with_standard_resource_type(self):
+        """Test zone with explicit standard resource type."""
+        config = self.get_valid_config()
+        placeholders = {
+            "value": {
+                "name": "standard_resource",
+                "type": "standard"
+            }
+        }
+        zone_info = self.create_zone_with_placeholders(
+            placeholders,
+            zone_text="Standard value: {value}"
+        )
+
+        result = parse_zone(zone_info, config)
+
+        # Verify standard type is preserved
+        expected_spec = {
+            "value": {
+                "name": "standard_resource",
+                "arguments": None,
+                "type": "standard"
+            }
+        }
+        self.assert_resource_specs_equal(result.resource_specs, expected_spec)
 
     def test_zone_with_custom_resource_type(self):
         """Test zone with custom resource type."""
@@ -273,7 +299,7 @@ class TestBasicFunctionality(BaseZoneParserTest):
         placeholders = {
             "min_value": {
                 "name": "min_control",
-                "type": "flow_control"
+                "type": "custom"
             }
         }
         zone_info = self.create_zone_with_placeholders(
@@ -288,7 +314,33 @@ class TestBasicFunctionality(BaseZoneParserTest):
             "min_value": {
                 "name": "min_control",
                 "arguments": None,
-                "type": "flow_control"
+                "type": "custom"
+            }
+        }
+        self.assert_resource_specs_equal(result.resource_specs, expected_spec)
+
+    def test_zone_with_argument_resource_type(self):
+        """Test zone with argument resource type."""
+        config = self.get_valid_config()
+        placeholders = {
+            "user_input": {
+                "name": "runtime_input",
+                "type": "argument"
+            }
+        }
+        zone_info = self.create_zone_with_placeholders(
+            placeholders,
+            zone_text="User provided: {user_input}"
+        )
+
+        result = parse_zone(zone_info, config)
+
+        # Verify argument type is preserved
+        expected_spec = {
+            "user_input": {
+                "name": "runtime_input",
+                "arguments": None,
+                "type": "argument"
             }
         }
         self.assert_resource_specs_equal(result.resource_specs, expected_spec)
@@ -385,6 +437,74 @@ class TestValidationErrors(BaseZoneParserTest):
         self.assertIn("string", error_msg)
         self.assertIn("bad_name", error_msg)
 
+    def test_invalid_resource_type(self):
+        """Test error when resource type is not valid."""
+        config = self.get_valid_config()
+        placeholders = {
+            "bad_type": {
+                "name": "valid_resource",
+                "type": "invalid_type"  # Not in ['standard', 'custom', 'argument']
+            }
+        }
+        zone_info = self.create_zone_with_placeholders(
+            placeholders,
+            zone_text="Bad type: {bad_type}"
+        )
+
+        with self.assertRaises(ZoneParseError) as context:
+            parse_zone(zone_info, config)
+
+        error_msg = str(context.exception).lower()
+        self.assertIn("type", error_msg)
+        self.assertIn("bad_type", error_msg)
+        self.assertIn("standard", error_msg)
+        self.assertIn("custom", error_msg)
+        self.assertIn("argument", error_msg)
+
+    def test_invalid_type_field_type(self):
+        """Test error when type field is not a string."""
+        config = self.get_valid_config()
+        placeholders = {
+            "non_string_type": {
+                "name": "valid_resource",
+                "type": 123  # Should be string
+            }
+        }
+        zone_info = self.create_zone_with_placeholders(
+            placeholders,
+            zone_text="Non-string type: {non_string_type}"
+        )
+
+        with self.assertRaises(ZoneParseError) as context:
+            parse_zone(zone_info, config)
+
+        error_msg = str(context.exception).lower()
+        self.assertIn("type", error_msg)
+        self.assertIn("string", error_msg)
+        self.assertIn("non_string_type", error_msg)
+
+    def test_invalid_arguments_field_type(self):
+        """Test error when arguments field is not a dictionary."""
+        config = self.get_valid_config()
+        placeholders = {
+            "bad_args": {
+                "name": "valid_resource",
+                "arguments": "not_a_dict"  # Should be dictionary
+            }
+        }
+        zone_info = self.create_zone_with_placeholders(
+            placeholders,
+            zone_text="Bad args: {bad_args}"
+        )
+
+        with self.assertRaises(ZoneParseError) as context:
+            parse_zone(zone_info, config)
+
+        error_msg = str(context.exception).lower()
+        self.assertIn("arguments", error_msg)
+        self.assertIn("dictionary", error_msg)
+        self.assertIn("bad_args", error_msg)
+
     def test_unescaped_flow_control_token(self):
         """Test warning for unescaped flow control token."""
         config = self.get_valid_config()
@@ -429,12 +549,12 @@ class TestConstructionCallback(BaseZoneParserTest):
             "principle": {
                 "name": "constitution",
                 "arguments": None,
-                "type": "default"
+                "type": "standard"
             },
             "count": {
                 "name": "counter",
                 "arguments": {"start": 5},
-                "type": "default"
+                "type": "standard"
             }
         }
 
@@ -466,7 +586,7 @@ class TestConstructionCallback(BaseZoneParserTest):
             "missing": {
                 "name": "missing_resource",
                 "arguments": None,
-                "type": "default"
+                "type": "standard"
             }
         }
 
@@ -490,7 +610,7 @@ class TestConstructionCallback(BaseZoneParserTest):
             "failing": {
                 "name": "failing_resource",
                 "arguments": {"param": "value"},
-                "type": "default"
+                "type": "standard"
             }
         }
 
@@ -597,35 +717,74 @@ class TestHelperFunctions(BaseZoneParserTest):
         placeholders = extract_placeholders("Text {same} and {same} again")
         self.assertEqual(placeholders, ["same"])
 
-    def test_build_resource_specs(self):
-        """Test resource spec building from block data."""
-        placeholders = ["feedback", "count"]
+    def test_build_resource_specs_all_types(self):
+        """Test resource spec building handles all three valid types."""
+        placeholders = ["standard_res", "custom_res", "argument_res", "default_res"]
         block_data = {
-            "feedback": {
-                "name": "feedback_resource",
-                "arguments": {"num": 3}
+            "standard_res": {
+                "name": "standard_resource",
+                "type": "standard"
             },
-            "count": {
-                "name": "counter_resource",
-                "type": "flow_control"
+            "custom_res": {
+                "name": "custom_resource",
+                "type": "custom",
+                "arguments": {"param": "value"}
+            },
+            "argument_res": {
+                "name": "argument_resource",
+                "type": "argument"
+            },
+            "default_res": {
+                "name": "default_resource"
+                # No type specified - should default to "standard"
             }
         }
 
         specs = build_resource_specs(placeholders, block_data, "test_seq")
 
         expected = {
-            "feedback": {
-                "name": "feedback_resource",
-                "arguments": {"num": 3},
-                "type": "default"
-            },
-            "count": {
-                "name": "counter_resource",
+            "standard_res": {
+                "name": "standard_resource",
                 "arguments": None,
-                "type": "flow_control"
+                "type": "standard"
+            },
+            "custom_res": {
+                "name": "custom_resource",
+                "arguments": {"param": "value"},
+                "type": "custom"
+            },
+            "argument_res": {
+                "name": "argument_resource",
+                "arguments": None,
+                "type": "argument"
+            },
+            "default_res": {
+                "name": "default_resource",
+                "arguments": None,
+                "type": "standard"
             }
         }
         self.assert_resource_specs_equal(specs, expected)
+
+    def test_build_resource_specs_rejects_invalid_type(self):
+        """Test resource spec building rejects invalid resource types."""
+        placeholders = ["invalid_type"]
+        block_data = {
+            "invalid_type": {
+                "name": "some_resource",
+                "type": "invalid_type_name"
+            }
+        }
+
+        with self.assertRaises(ZoneParseError) as context:
+            build_resource_specs(placeholders, block_data, "test_seq")
+
+        error_msg = str(context.exception).lower()
+        self.assertIn("type", error_msg)
+        self.assertIn("invalid_type", error_msg)
+        self.assertIn("standard", error_msg)
+        self.assertIn("custom", error_msg)
+        self.assertIn("argument", error_msg)
 
     def test_validate_flow_control_safety(self):
         """Test flow control validation function."""

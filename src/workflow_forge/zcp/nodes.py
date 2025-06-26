@@ -115,7 +115,7 @@ class ZCPNode:
 
     def _make_sampling_factory(self,
                                resources: Dict[str, AbstractResource]
-                               ) -> Callable[[], str]:
+                               ) -> Callable[[Dict[str, AbstractResource]], str]:
         """
         Factory for making the main sampling factory, which invokes the construction callback.
 
@@ -126,20 +126,49 @@ class ZCPNode:
             A callback which runs a sampling call and returns a string.
         """
 
-        def sample() -> str:
+        def sample(dynamic_resources: Dict[str, AbstractResource]) -> str:
             """
             Main sampling function, draws from the resources, fills
             in placeholders, gets text, returns the resolved string.
-
+            Args:
+                dynamic_resources: Runtime resources dictionary.
             Returns:
                 The resolved text string
             """
+            final_resource = {**dynamic_resources, **resources}
+            for placeholder, spec in self.resource_specs.items():
+                resource_name = spec["name"]
+                if resource_name not in final_resource:
+                    if spec["type"] == "argument":
+                        msg = f"""
+                        It appears an argument resource of name '{resource_name}' was
+                        not provided when invoking the factory. This is a sign you
+                        likely forgot to provide it. This concerns placeholder
+                        of name '{placeholder}'
+                        """
+                        msg = textwrap.dedent(msg)
+                        raise GraphError(message=msg, block=self.block, sequence=self.sequence)
+                    else:
+                        msg = f"""
+                        An impossible condition was reached. Resource named '{resource_name}' of 
+                        type '{spec["type"]}' is not available on factory invocation. However, this
+                        should have been caught earlier. Please contact the maintainer.
+                        """
+                        msg = textwrap.dedent(msg)
+                        raise GraphError(message=msg, block=self.block, sequence=self.sequence)
+
             try:
-                text = self.construction_callback(resources)
+                text = self.construction_callback(final_resource)
                 return text
             except Exception as err:
-                raise GraphLoweringError("Issue occurred while resolving resources",
-                                         self.block, self.sequence) from err
+                msg = f"""
+                An issue was encountered when invoking resource. This is 
+                despite the fact the resources were resolved. This is usually
+                a sign that you are not providing arguments in the right pattern,
+                but may indicate a malformed resource as well.
+                """
+                msg = textwrap.dedent(msg)
+                raise GraphError(message=msg, block=self.block, sequence=self.sequence) from err
 
         return sample
 
@@ -157,31 +186,33 @@ class ZCPNode:
         Returns:
             RZCPNode with callback for sampling text.
         """
-        try:
-            for placeholder, spec in self.resource_specs.items():
-                resource_name = spec['name']
-                if resource_name not in resources:
-                    raise RuntimeError(f"Resource '{resource_name}' not found for placeholder '{placeholder}'")
+        for placeholder, spec in self.resource_specs.items():
+            resource_name = spec["name"]
+            resource_type = spec["type"]
+            if resource_name not in resources and resource_type != "argument":
+                msg = f"""
+                A resource could not be resolved at compile time. Resource of
+                name '{resource_name}', type '{resource_type}', associated with
+                placeholder {placeholder} was not present in compile resources.
+                """
+                raise GraphLoweringError(message=msg, block=self.block, sequence=self.sequence)
 
-            sampling_callback = self._make_sampling_factory(resources)
+        sampling_callback = self._make_sampling_factory(resources)
 
-            return RZCPNode(
-                sequence=self.sequence,
-                block=self.block,
-                zone_advance_str=self.zone_advance_str,
-                escape_strs=config.escape_patterns,
-                tags=self.tags,
-                timeout=self.timeout,
-                sampling_callback=sampling_callback,
-                input=False,
-                output=False,
-                next_zone=None,
-                jump_advance_str=None,
-                jump_zone=None
-            )
-        except Exception as err:
-            raise GraphLoweringError("Failed to lower zcp to RZCP",
-                                     block=self.block, sequence=self.sequence) from err
+        return RZCPNode(
+            sequence=self.sequence,
+            block=self.block,
+            zone_advance_str=self.zone_advance_str,
+            escape_strs=config.escape_patterns,
+            tags=self.tags,
+            timeout=self.timeout,
+            sampling_callback=sampling_callback,
+            input=False,
+            output=False,
+            next_zone=None,
+            jump_advance_str=None,
+            jump_zone=None
+        )
 
     def lower(self,
               resources: Dict[str, AbstractResource],
@@ -238,7 +269,7 @@ class RZCPNode:
     zone_advance_str: str
     tags: List[str]
     timeout: int
-    sampling_callback: Callable[[], str]
+    sampling_callback: Callable[[Dict[str, AbstractResource]], str]
     escape_strs: Tuple[str, str]
     input: bool = False
     output: bool = False
@@ -287,19 +318,22 @@ class RZCPNode:
             node = node.next_zone
         return node
 
-    def _lower_node(self) -> Tuple['SZCPNode', Optional[str]]:
+    def _lower_node(self,
+                    resources: Dict[str, AbstractResource]
+                    ) -> Tuple['SZCPNode', Optional[str]]:
         """
         Convert this RZCP node to SZCP representation.
 
         Executes the sampling callback to resolve all placeholders to final text,
         creating a fully serializable node ready for network transmission.
-
+        Args:
+            resources: Dictionary of resources to use. They are the dynamic ones.
         Returns:
             SZCPNode with fully resolved text content
         """
         try:
             # Execute sampling callback to get resolved text
-            resolved_text = self.sampling_callback()
+            resolved_text = self.sampling_callback(resources)
 
             node = SZCPNode(
                 sequence=self.sequence,
@@ -323,6 +357,7 @@ class RZCPNode:
                                      sequence=self.sequence, block=self.block) from err
 
     def lower(self,
+              resources: Dict[str, AbstractResource],
               lowered_map: Optional[Dict['RZCPNode', 'SZCPNode']] = None
               ) -> 'SZCPNode':
         """
@@ -330,6 +365,7 @@ class RZCPNode:
         Handles cycles and complex flow control graphs correctly.
 
         Args:
+            resources: Any dynamic resources of relevance.
             lowered_map: Optional mapping to handle cycles during graph traversal
 
         Returns:
@@ -340,13 +376,13 @@ class RZCPNode:
         if self in lowered_map:
             return lowered_map[self]
 
-        lowered_self, jump_advance_str = self._lower_node()
+        lowered_self, jump_advance_str = self._lower_node(resources)
         lowered_map[self] = lowered_self
 
         if self.next_zone is not None:
-            lowered_self.next_zone = self.next_zone.lower(lowered_map)
+            lowered_self.next_zone = self.next_zone.lower(resources, lowered_map)
         if self.jump_zone is not None:
-            lowered_self.jump_zone = self.jump_zone.lower(lowered_map)
+            lowered_self.jump_zone = self.jump_zone.lower(resources, lowered_map)
             lowered_self.jump_advance_str = jump_advance_str
 
         return lowered_self

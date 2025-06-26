@@ -249,11 +249,15 @@ def build_resource_specs(placeholders: List[str], block_data: Dict[str, Any], se
                 f"Resource 'arguments' for placeholder '{placeholder}' must be a dictionary"
             )
 
-        # Validate optional 'type' field, default to "default"
-        resource_type = placeholder_section.get('type', 'default')
+        # Validate optional 'type' field, default to "standard"
+        resource_type = placeholder_section.get('type', 'standard')
         if not isinstance(resource_type, str):
             raise ZoneParseError(
                 f"Resource 'type' for placeholder '{placeholder}' must be a string"
+            )
+        if resource_type not in ('standard', 'custom', 'argument'):
+            raise ZoneParseError(
+                f'Resource "type" for placeholder "{placeholder}" must be in "standard", "custom", or "argument"'
             )
 
         # Store the resource spec

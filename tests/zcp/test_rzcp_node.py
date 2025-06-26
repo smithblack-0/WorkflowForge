@@ -8,6 +8,7 @@ Tests cover:
 4. Basic lowering operations (_lower_node, lower)
 5. Graph topology lowering (the mathematical focus)
 6. Error handling and exception propagation
+7. Three-tier resource system integration
 """
 
 import unittest
@@ -16,6 +17,7 @@ from typing import Dict, Any, Optional
 
 # Import the modules under test
 from src.workflow_forge.zcp.nodes import RZCPNode, SZCPNode, GraphLoweringError, GraphError
+from src.workflow_forge.resources import AbstractResource
 
 
 class BaseRZCPNodeTest(unittest.TestCase):
@@ -23,7 +25,7 @@ class BaseRZCPNodeTest(unittest.TestCase):
 
     def setUp(self):
         """Set up common test fixtures."""
-        # Create mock sampling callback
+        # Create mock sampling callback that accepts dynamic resources
         self.mock_sampling_callback = Mock()
         self.mock_sampling_callback.return_value = "resolved text"
 
@@ -336,7 +338,7 @@ class TestRZCPNodeBasicLowering(BaseRZCPNodeTest):
         """Test lower() creates valid SZCPNode."""
         node = self.create_node(tags=['Training', 'Correct'])
 
-        result = node.lower()
+        result = node.lower(resources={})
 
         # Verify result using helper assertion
         self.assert_szcp_node_properties(result, 'test_sequence', 0)
@@ -354,15 +356,31 @@ class TestRZCPNodeBasicLowering(BaseRZCPNodeTest):
         # Verify resolved text from sampling callback
         self.assertEqual(result.text, "resolved text")
 
-        # Verify sampling callback was called
-        self.mock_sampling_callback.assert_called_once()
+        # Verify sampling callback was called with empty resources
+        self.mock_sampling_callback.assert_called_once_with({})
+
+    def test_lower_node_with_dynamic_resources(self):
+        """Test lower() passes resources to sampling callback."""
+        node = self.create_node()
+
+        # Create resources
+        dynamic_mock = Mock(spec=AbstractResource)
+        resources = {'dynamic_res': dynamic_mock}
+
+        result = node.lower(resources=resources)
+
+        # Verify sampling callback was called with resources
+        self.mock_sampling_callback.assert_called_once_with(resources)
+
+        # Verify result
+        self.assertEqual(result.text, "resolved text")
 
     def test_lower_node_with_jump(self):
         """Test lower() preserves jump information."""
         target_node = self.create_node()
         jump_node = self.create_jump_node(target_node)
 
-        result = jump_node.lower()
+        result = jump_node.lower(resources={})
 
         # Verify jump string preserved
         self.assertEqual(result.jump_advance_str, '[Jump]')
@@ -373,7 +391,7 @@ class TestRZCPNodeBasicLowering(BaseRZCPNodeTest):
     def test_lower_node_with_tool(self):
         """Test lower() preserves tool information."""
         tool_node = self.create_node(tool_name='calculator')
-        result = tool_node.lower()
+        result = tool_node.lower(resources={})
 
         # Verify tool name preserved
         self.assertEqual(result.tool_name, 'calculator')
@@ -381,7 +399,7 @@ class TestRZCPNodeBasicLowering(BaseRZCPNodeTest):
     def test_lower_single_node(self):
         """Test lower() method with single node."""
         node = self.create_node()
-        result = node.lower()
+        result = node.lower(resources={})
 
         # Should return SZCPNode
         self.assertIsInstance(result, SZCPNode)
@@ -394,7 +412,7 @@ class TestRZCPNodeBasicLowering(BaseRZCPNodeTest):
         head_node = self.create_node_chain(2)
 
         # Lower the chain
-        result_head = head_node.lower()
+        result_head = head_node.lower(resources={})
 
         # Verify chain structure is preserved
         self.assert_szcp_node_properties(result_head, 'test_sequence', 0)
@@ -407,6 +425,63 @@ class TestRZCPNodeBasicLowering(BaseRZCPNodeTest):
         # Verify resolved text from different callbacks
         self.assertEqual(result_head.text, "resolved text 0")
         self.assertEqual(result_head.next_zone.text, "resolved text 1")
+
+
+
+class TestRZCPNodeResourceSystem(BaseRZCPNodeTest):
+    """Test three-tier resource system integration."""
+
+    def test_lower_with_multiple_resources(self):
+        """Test lower() with multiple resources."""
+        node = self.create_node()
+
+        # Create multiple resources
+        resources = {
+            'resource1': Mock(spec=AbstractResource),
+            'resource2': Mock(spec=AbstractResource),
+            'resource3': Mock(spec=AbstractResource)
+        }
+
+        result = node.lower(resources=resources)
+
+        # Verify all resources were passed
+        self.mock_sampling_callback.assert_called_once_with(resources)
+
+    def test_lower_chain_with_different_resources(self):
+        """Test lowering chain where each node gets same resources."""
+        # Create two-node chain
+        head_node = self.create_node_chain(2)
+
+        resources = {'shared_resource': Mock(spec=AbstractResource)}
+
+        # Lower the chain - all nodes should get same resources
+        result = head_node.lower(resources=resources)
+
+        # Both callbacks should have been called with same resources
+        head_callback = head_node.sampling_callback
+        second_callback = head_node.next_zone.sampling_callback
+
+        head_callback.assert_called_once_with(resources)
+        second_callback.assert_called_once_with(resources)
+
+    def test_sampling_callback_signature_compatibility(self):
+        """Test that sampling callback signature is correct for three-tier system."""
+        node = self.create_node()
+
+        # Create a more realistic callback mock
+        realistic_callback = Mock()
+        realistic_callback.return_value = "realistic result"
+        node.sampling_callback = realistic_callback
+
+        # Test with empty resources
+        result1 = node.lower(resources={})
+        realistic_callback.assert_called_with({})
+
+        # Reset mock and test with actual resources
+        realistic_callback.reset_mock()
+        resources = {'test': Mock(spec=AbstractResource)}
+        result2 = node.lower(resources=resources)
+        realistic_callback.assert_called_with(resources)
 
 
 class TestRZCPNodeGraphTopology(BaseRZCPNodeTest):
@@ -431,7 +506,7 @@ class TestRZCPNodeGraphTopology(BaseRZCPNodeTest):
         nodeC.next_zone = terminal
 
         # Lower from head
-        result = nodeA.lower()
+        result = nodeA.lower(resources={})
 
         # Verify structure preservation
         self.assertEqual(result.block, 0)  # A
@@ -460,7 +535,7 @@ class TestRZCPNodeGraphTopology(BaseRZCPNodeTest):
         nodeB.jump_zone = nodeD
 
         # Lower from head
-        result = nodeA.lower()
+        result = nodeA.lower(resources={})
 
         # Verify linear structure preserved
         self.assertEqual(result.block, 0)  # A
@@ -492,7 +567,7 @@ class TestRZCPNodeGraphTopology(BaseRZCPNodeTest):
         nodeC.jump_zone = nodeB
 
         # Lower from head (tests cycle handling)
-        result = nodeA.lower()
+        result = nodeA.lower(resources={})
 
         # Verify structure preserved
         self.assertEqual(result.block, 0)  # A
@@ -530,7 +605,7 @@ class TestRZCPNodeGraphTopology(BaseRZCPNodeTest):
         nodeD.next_zone = terminal
 
         # Lower from head
-        result = nodeA.lower()
+        result = nodeA.lower(resources={})
 
         # Verify both paths lead to same D
         path1_D = result.next_zone.next_zone  # A → B → D
@@ -556,7 +631,7 @@ class TestRZCPNodeGraphTopology(BaseRZCPNodeTest):
         nodeC.next_zone = nodeB  # Cycle back to B
 
         # This should complete without infinite recursion
-        result = nodeA.lower()
+        result = nodeA.lower(resources={})
 
         # Verify the cycle is preserved in lowered graph
         self.assertEqual(result.block, 0)  # A
@@ -568,6 +643,34 @@ class TestRZCPNodeGraphTopology(BaseRZCPNodeTest):
         nodeB_lowered = result.next_zone
         nodeB_from_cycle = result.next_zone.next_zone.next_zone
         self.assertEqual(nodeB_lowered, nodeB_from_cycle)
+
+    def test_topology_with_dynamic_resources(self):
+        """Test complex topology with resources passed through."""
+        # Create a complex graph: A → B (jump to D), C → D → Terminal
+        nodeA = self._create_topology_node(0)
+        nodeB = self._create_topology_node(1)
+        nodeC = self._create_topology_node(2)
+        nodeD = self._create_topology_node(3)
+
+        # Build topology
+        nodeA.next_zone = nodeB
+        nodeB.jump_advance_str = '[Jump]'
+        nodeB.jump_zone = nodeD
+        nodeC.next_zone = nodeD
+
+        # Create resources
+        resources = {
+            'shared_resource': Mock(spec=AbstractResource),
+            'topology_resource': Mock(spec=AbstractResource)
+        }
+
+        # Lower from head
+        result = nodeA.lower(resources=resources)
+
+        # Verify all callbacks were called with same resources
+        nodeA.sampling_callback.assert_called_with(resources)
+        nodeB.sampling_callback.assert_called_with(resources)
+        nodeD.sampling_callback.assert_called_with(resources)
 
 
 class TestRZCPNodeErrorHandling(BaseRZCPNodeTest):
@@ -594,7 +697,7 @@ class TestRZCPNodeErrorHandling(BaseRZCPNodeTest):
         )
 
         with self.assertRaises(GraphLoweringError) as context:
-            node.lower()
+            node.lower(resources={})
 
         self.assertEqual(context.exception.sequence, "error_sequence")
         self.assertEqual(context.exception.block, 5)
@@ -615,11 +718,33 @@ class TestRZCPNodeErrorHandling(BaseRZCPNodeTest):
         node1.next_zone = node2
 
         with self.assertRaises(GraphLoweringError) as context:
-            node1.lower()
+            node1.lower(resources={})
 
         # Error should reference the failing node's context
         self.assertEqual(context.exception.sequence, "error_sequence")
         self.assertEqual(context.exception.block, 6)  # Should be node2's block
+
+    def test_sampling_callback_error_with_resources(self):
+        """Test error handling when sampling callback fails with resources."""
+        failing_callback = Mock(side_effect=ValueError("Resource error"))
+        node = self.create_node(
+            sequence='resource_error_sequence',
+            block=7,
+            sampling_callback=failing_callback
+        )
+
+        resources = {'failing_resource': Mock(spec=AbstractResource)}
+
+        with self.assertRaises(GraphLoweringError) as context:
+            node.lower(resources=resources)
+
+        # Verify error context
+        self.assertEqual(context.exception.sequence, "resource_error_sequence")
+        self.assertEqual(context.exception.block, 7)
+        self.assertIsInstance(context.exception.__cause__, ValueError)
+
+        # Verify callback was called with resources before failing
+        failing_callback.assert_called_once_with(resources)
 
 
 if __name__ == "__main__":

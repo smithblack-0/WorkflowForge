@@ -10,7 +10,9 @@ tracking the forward connections as we go.
 
 You should review the Builder folder in ZCP or the graph
 builder documentation before editing the node construction
-system.
+system. Of note, the ZCP nodes perform the actual lowering
+process; this just invokes those functions and links
+the RZCP nodes together.
 """
 import numpy as np
 import warnings
@@ -19,7 +21,7 @@ from typing import Dict, Tuple, Any, Optional, List, Type
 
 from src.workflow_forge.zcp.builder import GraphBuilderNode
 from ..parsing.config_parsing import Config
-from ..resources import AbstractResource
+from ..resources import AbstractResource, StaticStringResource
 from ..zcp.nodes import ZCPNode, RZCPNode
 from ..tokenizer_interface import TokenizerInterface
 from dataclasses import dataclass
@@ -242,8 +244,9 @@ class Scope:
             if not isinstance(resource, AbstractResource):
                 try:
                     resource = str(resource)
+                    resource = StaticStringResource(resource)
                 except TypeError as err:
-                    raise ScopeException("Cound not convert python resource to text") from err
+                    raise ScopeException("Cound not convert python resource to text resource") from err
             final_resources[name] = resource
         return final_resources
 
@@ -261,7 +264,7 @@ class Scope:
             raise ScopeException(f"Sequence '{sequence_name}' not found in available sequences")
 
         zcp_head = self.sequences[sequence_name]
-        return zcp_head.lower(resources, self.tokenizer, self.tag_converter)
+        return zcp_head.lower(resources, self.config)
 
     def replace_builder(self,
                         builder: GraphBuilderNode
@@ -280,7 +283,6 @@ class Scope:
                                     self.program,
                                     self.resources,
                                     self.sequences,
-                                    self.tokenizer,
                                     )
 
     ### Commands.
@@ -346,22 +348,24 @@ class Scope:
 
     def capture(self,
                 sequence_name: str,
-                tool: Tool,
+                tool_name: str,
                 **extra_resources: Dict[str, Any]
                 ):
         """
         Sets up last zone in sequence as a capture zone, in
         which all contents will be stored and fed to tool
         :param sequence_name: Sequence to load and add.
-        :param tool: Tool to call back into
+        :param tool_name: Tool to call back into
         :param extra_resources: Any extra resources sequence should be setup with
         """
+        if tool_name not in self.config.tools:
+            raise ScopeException(f"Tool '{tool_name}' not found in available tools")
 
         resources = self._fetch_resources(extra_resources)
         sequence = self._load_sequence(sequence_name, resources)
         tail = sequence.get_last_node()
         tail.output = True
-        tail.tool_callback = tool
+        tail.tool_name = tool_name
         self.builder = self.builder.extend(sequence)
 
     def feed(self,
@@ -385,18 +389,22 @@ class Scope:
 #
 #
 
-def make_placeholder_node(tag_converter: TagConverter) -> RZCPNode:
-    """Create a placeholder node for graph construction."""
+def make_placeholder_node() -> RZCPNode:
+    """
+    The placeholder node exists at the start of the graph, and will
+    later be removed after the graph resolves.
+    """
     return RZCPNode(
-        sequence="",
+        sequence="Placeholder",
         block = 0,
-        zone_advance_tokens=np.array([]),  # Dummy token
-        tags=tag_converter.tensorize([]),  # No tags
-        timeout=0,  # No timeout
-        sampling_callback=lambda: np.array([]),  # Empty tokens
-        input=False,
-        output=False
+        zone_advance_str="",
+        tags=[],
+        timeout = 0,
+        sampling_callback=lambda _: "",
+        escape_strs= ("", ""),
     )
+
+
 
 class Program:
     """
@@ -411,22 +419,17 @@ class Program:
                  sequences: Dict[str, ZCPNode],
                  resources: Dict[str, AbstractResource],
                  config: Config,
-                 tokenizer: TokenizerInterface,
-                 tag_converter: TagConverter):
+                 ):
         """Initialize a new program."""
         self.factories = factories
         self.sequences = sequences
         self.resources = resources
         self.config = config
-        self.tokenizer = tokenizer
-        self.tag_converter = tag_converter
 
         # Create mock head node for graph construction
-        self.head = make_placeholder_node(tag_converter)
-
-        # Create initial builder and scope
-        jump_tokens = np.array(tokenizer.tokenize(config.control_pattern))
-        initial_builder = self.factories.graph_builder(jump_tokens, [self.head])
+        self.head = make_placeholder_node()
+        initial_builder = self.factories.graph_builder(self.config.control_pattern,
+                                                       [self.head])
 
         self.scope = Scope(
             factories=self.factories,
@@ -436,37 +439,10 @@ class Program:
             program=self,
             resources=self.resources,
             sequences=self.sequences,
-            tokenizer=self.tokenizer,
-            tag_converter=self.tag_converter
         )
 
         # Program-level state
-        self.toolboxes: List[Toolbox] = []
-        self.extractions: Dict[str, np.ndarray] = {}
-    ### Primary program responsibilites
-    #
-    # Extract configuration, toolbox manufactoring, and
-    # other similer details.
-
-    def new_toolbox(self,
-                   input_buffer_size: int,
-                   output_buffer_size: int
-                   ) -> Toolbox:
-        """
-        Create a new toolbox that will be backed by
-        an input buffer and output buffer of the appropriate size.
-        :param input_buffer_size: The size of the buffer which can contain callback results
-        :param output_buffer_size: The size of the buffer which can contain tokens to feed into callbacks
-        :return: The new toolbox
-        """
-        toolbox = self.factories.toolbox(
-            tokenizer=self.tokenizer.tokenize,
-            detokenizer=self.tokenizer.detokenize,
-            input_buffer_size=input_buffer_size,
-            output_buffer_size=output_buffer_size
-        )
-        self.toolboxes.append(toolbox)
-        return toolbox
+        self.extractions: Dict[str, List[str]] = {}
 
     def extract(self,
                 name: str,
@@ -486,12 +462,9 @@ class Program:
         for tag in tags:
             if tag not in self.config.valid_tags:
                 raise ProgramException(f"Invalid tag '{tag}' not in config.valid_tags")
-
-        # Convert to boolean mask and store
-        tag_mask = self.tag_converter.tensorize(tags)
         if name in self.extractions:
             raise ProgramException("Already specified an extract to that name")
-        self.extractions[name] = tag_mask
+        self.extractions[name] = tags
 
     def merge(self,
               other_program: 'Program'

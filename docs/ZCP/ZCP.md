@@ -2,7 +2,7 @@
 
 The Zone Control Protocol (ZCP) is the Intermediate Representation used to encode flow control graphs before compilation to bytecode for the TTFA backend. ZCP represents AI workflows as mathematically well-defined directed graphs with specific properties that enable efficient compilation and execution.
 
-## Notes on stas
+## Notes
 
 The ZCP documentation is most likely to become out of date, as it is what is used to couple the frontend and the backend. Be wary of this; while making changes between them it is possible this may become out of date accidentally.
 
@@ -68,6 +68,7 @@ The pipeline splits between frontend (client-side) and backend (server-side) exe
 
 SZCP serves as the **serialization boundary**, enabling "compile locally, execute remotely" workflows by containing fully resolved text content that can be transmitted over networks.
 
+**CRITICAL NOTES** the zcp methods perform the lowering on themselves.
 ## Node Specifications
 
 ### General Node Properties

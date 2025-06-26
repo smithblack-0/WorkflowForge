@@ -26,7 +26,8 @@ class BaseIntegrationTest(unittest.TestCase):
         self.config = self._create_test_config()
         self.tokenizer = self._create_test_tokenizer()
         self.tag_converter = self._create_test_tag_converter()
-        self.resources = self._create_test_resources()
+        self.compile_time_resources = self._create_compile_time_resources()
+        self.runtime_resources = self._create_runtime_resources()
         self.tool_registry = self._create_test_tool_registry()
 
     def _create_test_config(self) -> Config:
@@ -70,19 +71,30 @@ class BaseIntegrationTest(unittest.TestCase):
         """Create REAL tag converter."""
         return TagConverter(self.config.valid_tags)
 
-    def _create_test_resources(self) -> Dict[str, AbstractResource]:
-        """Create real resource implementations for testing."""
+    def _create_compile_time_resources(self) -> Dict[str, AbstractResource]:
+        """Create resources available at ZCP→RZCP lowering (standard + custom types)."""
         resources = {}
 
-        # Simple string resource
+        # Standard type resource
         resources["constitution"] = StaticStringResource("Be kind and just")
 
-        # List sampler resource
+        # Custom type resource
         feedback_options = ["Consider multiple perspectives", "Think about consequences", "Review your assumptions"]
         resources["feedback_sampler"] = ListSamplerResource(feedback_options)
 
-        # Control resource
+        # Custom type control resource
         resources["repeat_counter"] = StaticStringResource("3")
+
+        return resources
+
+    def _create_runtime_resources(self) -> Dict[str, AbstractResource]:
+        """Create resources available at RZCP→SZCP lowering (argument types)."""
+        resources = {}
+
+        # Argument type resources provided at runtime
+        resources["user_input"] = StaticStringResource("What is consciousness?")
+        resources["runtime_config"] = StaticStringResource("verbose=true")
+        resources["dynamic_context"] = StaticStringResource("Previous conversation context")
 
         return resources
 
@@ -140,11 +152,11 @@ class BaseIntegrationTest(unittest.TestCase):
         )
 
     def create_rzcp_node(self, sequence: str, block: int, zone_advance_str: str,
-                        tags: list, timeout: int, sampling_callback: Callable[[], str],
+                        tags: list, timeout: int, sampling_callback: Callable[[Dict[str, AbstractResource]], str],
                         **kwargs) -> RZCPNode:
         """Helper to create RZCP nodes with required fields."""
         defaults = {
-            'escape_strs': ('[Escape]', '[EndEscape]'),  # Added required field
+            'escape_strs': ('[Escape]', '[EndEscape]'),
             'input': False,
             'output': False,
             'next_zone': None,
@@ -198,18 +210,18 @@ class TestZCPLoweringIntegration(BaseIntegrationTest):
         node1.next_zone = node2
         return node1
 
-    def _create_zcp_with_resources(self) -> ZCPNode:
-        """Create ZCP chain that requires resource resolution."""
+    def _create_zcp_with_standard_resources(self) -> ZCPNode:
+        """Create ZCP chain that requires standard resource resolution."""
         resource_specs = {
             "principle": {
                 "name": "constitution",
                 "arguments": None,
-                "type": "default"
+                "type": "standard"
             },
             "feedback": {
                 "name": "feedback_sampler",
                 "arguments": {"num_samples": 3},
-                "type": "default"
+                "type": "standard"
             }
         }
 
@@ -217,6 +229,65 @@ class TestZCPLoweringIntegration(BaseIntegrationTest):
 
         return self.create_zcp_node(
             sequence="reasoning",
+            block=0,
+            template=template,
+            resource_specs=resource_specs,
+            zone_advance_str="[Answer]",
+            tags=["Training"],
+            timeout=1000
+        )
+
+    def _create_zcp_with_argument_resources(self) -> ZCPNode:
+        """Create ZCP chain that requires argument-type resources (resolved later)."""
+        resource_specs = {
+            "user_question": {
+                "name": "user_input",
+                "arguments": None,
+                "type": "argument"
+            },
+            "context": {
+                "name": "dynamic_context",
+                "arguments": None,
+                "type": "argument"
+            }
+        }
+
+        template = "[Prompt] Question: {user_question}. Context: {context} [Answer]"
+
+        return self.create_zcp_node(
+            sequence="query",
+            block=0,
+            template=template,
+            resource_specs=resource_specs,
+            zone_advance_str="[Answer]",
+            tags=["Training"],
+            timeout=1000
+        )
+
+    def _create_zcp_with_mixed_resources(self) -> ZCPNode:
+        """Create ZCP chain with standard, custom, and argument resources."""
+        resource_specs = {
+            "principle": {
+                "name": "constitution",
+                "arguments": None,
+                "type": "standard"
+            },
+            "max_tries": {
+                "name": "repeat_counter",
+                "arguments": None,
+                "type": "custom"
+            },
+            "user_query": {
+                "name": "user_input",
+                "arguments": None,
+                "type": "argument"
+            }
+        }
+
+        template = "[Prompt] Using principle: {principle}. Max tries: {max_tries}. User asks: {user_query} [Answer]"
+
+        return self.create_zcp_node(
+            sequence="mixed",
             block=0,
             template=template,
             resource_specs=resource_specs,
@@ -257,10 +328,10 @@ class TestZCPLoweringIntegration(BaseIntegrationTest):
     def _create_rzcp_with_flow_control(self) -> RZCPNode:
         """Create RZCP graph with flow control (loop)."""
         # Control node - decides whether to loop
-        control_callback = lambda: "[Prompt] Continue? Say 'yes' or emit [Escape] [Jump] [EndEscape] to exit [Answer]"
+        control_callback = lambda resources: "[Prompt] Continue? Say 'yes' or emit [Escape] [Jump] [EndEscape] to exit [Answer]"
 
         # Body node - the work being repeated
-        body_callback = lambda: " Working on the problem... [EOS]"
+        body_callback = lambda resources: " Working on the problem... [EOS]"
 
         body_node = self.create_rzcp_node(
             sequence="body",
@@ -296,9 +367,9 @@ class TestZCPLoweringIntegration(BaseIntegrationTest):
         # Setup: Create ZCP chain manually
         zcp_chain = self._create_simple_zcp_chain()
 
-        # Execute: Lower ZCP → RZCP → SZCP → LZCP (fixed API calls)
-        rzcp = zcp_chain.lower(self.resources, self.config)  # Added missing config parameter
-        szcp = rzcp.lower()
+        # Execute: Lower ZCP → RZCP → SZCP → LZCP
+        rzcp = zcp_chain.lower(self.compile_time_resources, self.config)
+        szcp = rzcp.lower(resources={})  # No runtime resources needed
         lzcp = szcp.lower(self.tokenizer, self.tag_converter, self.tool_registry)
 
         # Verify: Check final LZCP structure
@@ -323,24 +394,81 @@ class TestZCPLoweringIntegration(BaseIntegrationTest):
         self.assertIsInstance(lzcp.escape_tokens, tuple)
         self.assertEqual(len(lzcp.escape_tokens), 2)
 
-    def test_resource_resolution_integration(self):
-        """Test that resources with arguments are called correctly."""
-        # Setup: ZCP with placeholders requiring resources with args
-        zcp_with_resources = self._create_zcp_with_resources()
+    def test_standard_resource_resolution_integration(self):
+        """Test that standard resources with arguments are called correctly at ZCP→RZCP."""
+        # Setup: ZCP with placeholders requiring standard resources with args
+        zcp_with_resources = self._create_zcp_with_standard_resources()
 
-        # Execute: Lower with specific resource calls expected (fixed API)
-        rzcp = zcp_with_resources.lower(self.resources, self.config)
-        szcp = rzcp.lower()
+        # Execute: Lower with specific resource calls expected
+        rzcp = zcp_with_resources.lower(self.compile_time_resources, self.config)
+        szcp = rzcp.lower(resources={})  # No runtime resources needed
 
-        # Verify: Resources were used correctly (check actual text resolution)
+        # Verify: Standard resources were used correctly (check actual text resolution)
         self.assertIn("Be kind and just", szcp.text)
         self.assertNotIn("{principle}", szcp.text)  # Placeholder resolved
         self.assertNotIn("{feedback}", szcp.text)   # Placeholder resolved
 
+    def test_argument_resource_workflow(self):
+        """Test argument-type resources provided at RZCP→SZCP lowering."""
+        # Setup: ZCP with argument-type resources
+        zcp_with_args = self._create_zcp_with_argument_resources()
+
+        # Execute: Lower ZCP → RZCP (argument resources not required yet)
+        rzcp = zcp_with_args.lower(self.compile_time_resources, self.config)
+
+        # Should succeed even though argument resources not provided
+        self.assertIsInstance(rzcp, RZCPNode)
+
+        # Execute: Lower RZCP → SZCP (now provide argument resources)
+        szcp = rzcp.lower(resources=self.runtime_resources)
+
+        # Verify: Argument resources were resolved
+        self.assertIn("What is consciousness?", szcp.text)
+        self.assertIn("Previous conversation context", szcp.text)
+        self.assertNotIn("{user_question}", szcp.text)  # Placeholder resolved
+        self.assertNotIn("{context}", szcp.text)       # Placeholder resolved
+
+    def test_three_tier_resource_integration(self):
+        """Test complete three-tier system: standard+custom at ZCP→RZCP, argument at RZCP→SZCP."""
+        # Setup: ZCP with mixed resource types
+        zcp_mixed = self._create_zcp_with_mixed_resources()
+
+        # Execute: Lower ZCP → RZCP (standard + custom resources provided)
+        rzcp = zcp_mixed.lower(self.compile_time_resources, self.config)
+
+        # Should succeed - standard and custom resources validated
+        self.assertIsInstance(rzcp, RZCPNode)
+
+        # Execute: Lower RZCP → SZCP (argument resources provided)
+        szcp = rzcp.lower(resources=self.runtime_resources)
+
+        # Verify: All three resource types were resolved
+        self.assertIn("Be kind and just", szcp.text)      # Standard resource
+        self.assertIn("3", szcp.text)                     # Custom resource
+        self.assertIn("What is consciousness?", szcp.text) # Argument resource
+
+        # Verify: No unresolved placeholders
+        self.assertNotIn("{principle}", szcp.text)
+        self.assertNotIn("{max_tries}", szcp.text)
+        self.assertNotIn("{user_query}", szcp.text)
+
+    def test_missing_argument_resource_error(self):
+        """Test that missing argument resources cause proper errors."""
+        # Setup: ZCP with argument resources
+        zcp_with_args = self._create_zcp_with_argument_resources()
+
+        # Execute: Lower ZCP → RZCP (should succeed)
+        rzcp = zcp_with_args.lower(self.compile_time_resources, self.config)
+
+        # Execute: Try to lower RZCP → SZCP without argument resources
+        with self.assertRaises(Exception) as context:
+            szcp = rzcp.lower()  # Missing argument resources
+
+
     def test_tool_integration(self):
         """Test tool name → callback resolution works."""
-        # Setup: Create RZCP with tool name (using helper)
-        capture_callback = lambda: "[Prompt] Calculate 2+2 [Answer]"
+        # Setup: Create RZCP with tool name
+        capture_callback = lambda resources: "[Prompt] Calculate 2+2 [Answer]"
 
         capture_node = self.create_rzcp_node(
             sequence="calc",
@@ -354,7 +482,7 @@ class TestZCPLoweringIntegration(BaseIntegrationTest):
         )
 
         # Execute: Lower RZCP → SZCP → LZCP
-        szcp = capture_node.lower()
+        szcp = capture_node.lower(resources={})
         lzcp = szcp.lower(self.tokenizer, self.tag_converter, self.tool_registry)
 
         # Verify: Tool name preserved in SZCP
@@ -378,7 +506,7 @@ class TestZCPLoweringIntegration(BaseIntegrationTest):
         rzcp_head = self._create_rzcp_with_flow_control()
 
         # Execute: Lower RZCP → SZCP → LZCP
-        szcp = rzcp_head.lower()
+        szcp = rzcp_head.lower(resources={})
         lzcp = szcp.lower(self.tokenizer, self.tag_converter, self.tool_registry)
 
         # Verify: Graph topology preserved at all stages
@@ -404,12 +532,12 @@ class TestZCPLoweringIntegration(BaseIntegrationTest):
         """Test realistic workflow with everything: resources, tools, flow control."""
         # Setup: Create ZCP nodes with proper resource specs
 
-        # Control node ZCP with resource spec
+        # Control node ZCP with custom resource spec
         control_specs = {
             "max_tries": {
                 "name": "repeat_counter",
                 "arguments": None,
-                "type": "control"
+                "type": "custom"
             }
         }
         control_template = "[Prompt] Try again? Max {max_tries} times. Emit [Escape] [Jump] [EndEscape] to exit [Answer]"
@@ -436,22 +564,30 @@ class TestZCPLoweringIntegration(BaseIntegrationTest):
             timeout=1000
         )
 
-        # Feedback node ZCP
-        feedback_zcp = ZCPNode(
+        # Feedback node ZCP with argument resource
+        feedback_specs = {
+            "context": {
+                "name": "dynamic_context",
+                "arguments": None,
+                "type": "argument"
+            }
+        }
+        feedback_template = "[Prompt] Based on analysis and {context}: [Answer] Improved solution [EOS]"
+
+        feedback_zcp = self.create_zcp_node(
             sequence="feedback",
             block=0,
-            construction_callback=lambda resources: "[Prompt] Based on analysis: [Answer] Improved solution [EOS]",
-            resource_specs={},
-            raw_text="[Prompt] Based on analysis: [Answer] Improved solution [EOS]",
+            template=feedback_template,
+            resource_specs=feedback_specs,
             zone_advance_str="[EOS]",
             tags=["Correct"],
             timeout=500
         )
 
-        # Execute: Lower ZCP → RZCP with resources (fixed API)
-        control_rzcp = control_zcp.lower(self.resources, self.config)
-        work_rzcp = work_zcp.lower(self.resources, self.config)
-        feedback_rzcp = feedback_zcp.lower(self.resources, self.config)
+        # Execute: Lower ZCP → RZCP with compile-time resources
+        control_rzcp = control_zcp.lower(self.compile_time_resources, self.config)
+        work_rzcp = work_zcp.lower(self.compile_time_resources, self.config)
+        feedback_rzcp = feedback_zcp.lower(self.compile_time_resources, self.config)
 
         # Wire RZCP graph with flow control and tool settings
         control_rzcp.next_zone = work_rzcp
@@ -469,43 +605,91 @@ class TestZCPLoweringIntegration(BaseIntegrationTest):
         # Add input flag to feedback node
         feedback_rzcp.input = True
 
-        # Execute: Lower RZCP → SZCP → LZCP
-        szcp = control_rzcp.lower()
+        # Execute: Lower RZCP → SZCP → LZCP (provide argument resources)
+        szcp = control_rzcp.lower(resources=self.runtime_resources)
         lzcp = szcp.lower(self.tokenizer, self.tag_converter, self.tool_registry)
 
         # Verify: All features integrated correctly
 
-        # 1. Resource resolution worked
-        self.assertIn("3", szcp.text)  # Resource was resolved
+        # 1. Custom resource resolution worked
+        self.assertIn("3", szcp.text)  # Custom resource was resolved
 
-        # 2. Tool integration
+        # 2. Argument resource resolution worked
+        feedback_szcp = szcp.next_zone.next_zone
+        self.assertIn("Previous conversation context", feedback_szcp.text)
+
+        # 3. Tool integration
         work_lzcp = lzcp.next_zone
         self.assertIsNotNone(work_lzcp.tool_callback)
         self.assertTrue(work_lzcp.output)
         self.assertIs(work_lzcp.tool_callback, self.analyzer_callback)
 
-        # 3. Input/output flags preserved
+        # 4. Input/output flags preserved
         feedback_lzcp = work_lzcp.next_zone
         self.assertTrue(feedback_lzcp.input)
 
-        # 4. Graph topology preserved
+        # 5. Graph topology preserved
         self.assertEqual(feedback_lzcp.next_zone, lzcp)  # Loop back
 
-        # 5. Jump control preserved
+        # 6. Jump control preserved
         self.assertIsNotNone(lzcp.jump_tokens)
         self.assertEqual(lzcp.jump_zone, feedback_lzcp)
 
-        # 6. Tokenization occurred
+        # 7. Tokenization occurred
         self.assertIsInstance(lzcp.tokens, np.ndarray)
         self.assertIsInstance(lzcp.tags, np.ndarray)
         self.assertEqual(lzcp.tags.dtype, np.bool_)
 
-        # 7. Escape tokens present
+        # 8. Escape tokens present
         self.assertIsInstance(lzcp.escape_tokens, tuple)
+
+    def test_resource_precedence_integration(self):
+        """Test that compile-time resources override runtime resources when names conflict."""
+        # Setup: Create runtime resources with conflicting names
+        conflicting_runtime = {
+            "constitution": StaticStringResource("Runtime constitution"),  # Conflicts with compile-time
+            "user_input": StaticStringResource("Runtime user input")       # Argument type, no conflict
+        }
+
+        # Create ZCP with both standard and argument resources
+        resource_specs = {
+            "principle": {
+                "name": "constitution",  # Standard type - should use compile-time version
+                "arguments": None,
+                "type": "standard"
+            },
+            "user_query": {
+                "name": "user_input",   # Argument type - should use runtime version
+                "arguments": None,
+                "type": "argument"
+            }
+        }
+
+        template = "[Prompt] Principle: {principle}. Query: {user_query} [Answer]"
+
+        zcp_node = self.create_zcp_node(
+            sequence="precedence",
+            block=0,
+            template=template,
+            resource_specs=resource_specs,
+            zone_advance_str="[Answer]",
+            tags=[],
+            timeout=500
+        )
+
+        # Execute: Lower with conflicting resources
+        rzcp = zcp_node.lower(self.compile_time_resources, self.config)
+        szcp = rzcp.lower(resources=conflicting_runtime)
+
+        # Verify: Compile-time resource wins for standard type
+        self.assertIn("Be kind and just", szcp.text)      # Compile-time version
+        self.assertNotIn("Runtime constitution", szcp.text) # Runtime version ignored
+
+        # Verify: Runtime resource used for argument type
+        self.assertIn("Runtime user input", szcp.text)    # Runtime version used
 
     def test_error_propagation_integration(self):
         """Test that errors propagate correctly through the pipeline."""
-
         # Setup: Create a mock resource that actually fails
         class FailingResource(AbstractResource):
             def __call__(self, **kwargs) -> str:
@@ -518,7 +702,7 @@ class TestZCPLoweringIntegration(BaseIntegrationTest):
             "bad_placeholder": {
                 "name": "failing_resource",
                 "arguments": None,
-                "type": "default"
+                "type": "standard"
             }
         }
 
@@ -535,17 +719,17 @@ class TestZCPLoweringIntegration(BaseIntegrationTest):
         # Execute: Should fail during resource resolution in sampling callback
         with self.assertRaises(Exception) as context:
             rzcp = zcp_node.lower(bad_resources, self.config)
-            rzcp.lower()  # This should trigger sampling callback and fail
+            rzcp.lower(resources={})  # This should trigger sampling callback and fail
 
-        # Verify: Exception was properly raised (specific type depends on implementation)
+        # Verify: Exception was properly raised
         self.assertIsNotNone(context.exception)
 
     def test_serialization_boundary_integration(self):
         """Test that SZCP can be serialized (simulating client/server boundary)."""
-        # Setup: Create RZCP and lower to SZCP (fixed API)
-        zcp_chain = self._create_simple_zcp_chain()
-        rzcp = zcp_chain.lower(self.resources, self.config)
-        szcp = rzcp.lower()
+        # Setup: Create RZCP with mixed resources and lower to SZCP
+        zcp_mixed = self._create_zcp_with_mixed_resources()
+        rzcp = zcp_mixed.lower(self.compile_time_resources, self.config)
+        szcp = rzcp.lower(resources=self.runtime_resources)
 
         # Execute: Serialize and deserialize
         serialized = szcp.serialize()
@@ -554,13 +738,69 @@ class TestZCPLoweringIntegration(BaseIntegrationTest):
         # Verify: Deserialized SZCP can continue to LZCP
         lzcp = deserialized.lower(self.tokenizer, self.tag_converter, self.tool_registry)
 
-        # Verify: Final result is identical
+        # Verify: Final result contains all resolved resources
         self.assertIsInstance(lzcp, LZCPNode)
-        self.assertEqual(lzcp.sequence, "setup")
-        self.assertIsNotNone(lzcp.next_zone)
+        self.assertEqual(lzcp.sequence, "mixed")
+
+        # Verify: All resource types were resolved and preserved through serialization
+        self.assertIn("Be kind and just", deserialized.text)      # Standard
+        self.assertIn("3", deserialized.text)                     # Custom
+        self.assertIn("What is consciousness?", deserialized.text) # Argument
 
         # Verify: escape_strs preserved through serialization
         self.assertEqual(deserialized.escape_strs, ('[Escape]', '[EndEscape]'))
+
+    def test_pipeline_with_no_resources(self):
+        """Test that pipeline works with nodes that have no resource requirements."""
+        # Setup: Simple chain with no resources
+        zcp_chain = self._create_simple_zcp_chain()
+
+        # Execute: Lower with empty resources at each stage
+        rzcp = zcp_chain.lower({}, self.config)  # No compile-time resources needed
+        szcp = rzcp.lower(resources={})          # No runtime resources needed
+        lzcp = szcp.lower(self.tokenizer, self.tag_converter, self.tool_registry)
+
+        # Verify: Pipeline completes successfully
+        self.assertIsInstance(lzcp, LZCPNode)
+        self.assertEqual(lzcp.sequence, "setup")
+        self.assertIsNotNone(lzcp.next_zone)
+        self.assertIsNone(lzcp.next_zone.next_zone)
+
+    def test_argument_only_workflow(self):
+        """Test workflow that only uses argument-type resources."""
+        # Setup: ZCP with only argument resources
+        zcp_args_only = self._create_zcp_with_argument_resources()
+
+        # Execute: Lower ZCP → RZCP with empty compile-time resources
+        rzcp = zcp_args_only.lower({}, self.config)  # No compile-time resources needed
+
+        # Should succeed since no standard/custom resources required
+        self.assertIsInstance(rzcp, RZCPNode)
+
+        # Execute: Lower RZCP → SZCP with argument resources
+        szcp = rzcp.lower(resources=self.runtime_resources)
+
+        # Verify: Argument resources resolved correctly
+        self.assertIn("What is consciousness?", szcp.text)
+        self.assertIn("Previous conversation context", szcp.text)
+
+        # Continue to LZCP to verify full pipeline
+        lzcp = szcp.lower(self.tokenizer, self.tag_converter, self.tool_registry)
+        self.assertIsInstance(lzcp, LZCPNode)
+
+    def test_partial_argument_resources(self):
+        """Test error handling when only some argument resources are provided."""
+        # Setup: ZCP requiring multiple argument resources
+        zcp_with_args = self._create_zcp_with_argument_resources()
+        rzcp = zcp_with_args.lower({}, self.config)
+
+        # Execute: Provide only partial argument resources
+        partial_runtime = {"user_input": StaticStringResource("Partial input")}
+        # Missing "dynamic_context"
+
+        # Should fail when trying to resolve missing argument resource
+        with self.assertRaises(Exception) as context:
+            szcp = rzcp.lower(resources=partial_runtime)
 
 
 if __name__ == "__main__":

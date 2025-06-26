@@ -130,10 +130,10 @@ tags = [[],[]]
 
 [loop.min]
 name = "min_control_resource"
-type = "control"
+type = "custom"
 [loop.max]
 name = "max_control_resource"
-type = "control"
+type = "custom"
 
 # This will be repeated again and again as needed.
 
@@ -297,12 +297,12 @@ tags = [[],["Feedback"]]
                 "min": {
                     "name": "min_control_resource",
                     "arguments": None,
-                    "type": "control"
+                    "type": "custom"
                 },
                 "max": {
                     "name": "max_control_resource",
                     "arguments": None,
-                    "type": "control"
+                    "type": "custom"
                 }
             }
             self.assertEqual(prompt_zone.resource_specs, expected_specs)
@@ -335,12 +335,12 @@ tags = [[],["Feedback"]]
                 "placeholder": {
                     "name": "constitution",
                     "arguments": None,
-                    "type": "default"
+                    "type": "standard"
                 },
                 "feedback": {
                     "name": "feedback_backend",
                     "arguments": {"num_samples": 3},
-                    "type": "default"
+                    "type": "standard"
                 }
             }
             self.assertEqual(prompt_zone.resource_specs, expected_specs)
@@ -490,7 +490,7 @@ name = "input_resource"
                 "input": {
                     "name": "input_resource",
                     "arguments": None,
-                    "type": "default"
+                    "type": "standard"
                 }
             }
             self.assertEqual(placeholder_zone.resource_specs, expected_spec)
@@ -595,7 +595,7 @@ name = "attempt_number"
                     "attempt": {
                         "name": "attempt_number",
                         "arguments": None,
-                        "type": "default"
+                        "type": "standard"
                     }
                 }
                 self.assertEqual(zone.resource_specs, expected_spec)
