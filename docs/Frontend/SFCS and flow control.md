@@ -2,9 +2,13 @@
 
 The SFCS DSL is the flow control language viewed by this system. The frontend flow control module is what implements it
 
+## Background 
+
+Make sure you have read [ZCP](..ZCP.md) so you understand what a DCG-IO graph is and how the ZCP system works. You should also have read [Overview](../UserGuide/Overview.md) and [SFCS](../UserGuide/SFCS.md) so you understand the termonology and the SFCS user-facing interface. This will discuss the under-the-hood details.
+
 ## Design
 
-There is one primary purpose the SFCS system performs. That purpose is creating a flow control graph, and particularly the DCG-IO graph our system needs. This will be the RZCP graph when finished.
+There is one primary purpose the SFCS system performs. That purpose is creating a flow control graph, and particularly the DCG-IO graph our system needs. This will be the RZCP graph when finished. Additionally, this graph is known to be lowerable without too much trouble to tensor-based operations.
 
 To build such a graph, several things are needed:
 

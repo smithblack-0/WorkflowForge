@@ -76,7 +76,7 @@ class GraphBuilderNode:
         self.head: Optional[RZCPNode] = None
         self.jump_pattern = jump_pattern
 
-    def _resolve_forward_references(self, sequence):
+    def _resolve_forward_references(self, sequence: RZCPNode):
         """Internal utility to wire up all the forward references"""
         # Wire all pending forward refs to this sequence head
         for tail in self.nominal_refs:

@@ -227,7 +227,7 @@ The **SZCP serialization boundary** enables "compile locally, execute remotely" 
 - [Techical Status](TECHNICAL_STATUS.md)
 - 📝 [UDPL Specification](docs/UserGuide/UDPL.md) - Prompting language reference  
 - 🔄 [SFCS Guide](docs/UserGuide/SFCS.md) - Flow control programming
-- ⚙️ [ZCP Reference](docs/ZCP.md) - Intermediate representation details
+- ⚙️ [ZCP Reference](docs/ZCP/ZCP.md) - Intermediate representation details
 - 🚀 [TTFA Architecture](docs/Autonoma/) - GPU execution engine
 
 ## Philosophy

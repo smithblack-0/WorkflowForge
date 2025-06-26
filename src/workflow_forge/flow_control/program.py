@@ -2,6 +2,15 @@
 Scope nodes are used to make the zcp graph. They form a natural
 nested hierarchy that captures the blocks we use to make up code.
 Scope nodes upon running their exit routine should attach.
+
+Generally, a GraphBuilderNode is maintained and extended as
+we travel along, which ends up maintaining and extending the
+actual graph as well. That graph builder is responsible for
+tracking the forward connections as we go.
+
+You should review the Builder folder in ZCP or the graph
+builder documentation before editing the node construction
+system.
 """
 import numpy as np
 import warnings
@@ -42,7 +51,6 @@ class FCFactories:
     scope: Type['Scope']
     program: Type['Program']
     graph_builder: Type['GraphBuilderNode']
-    toolbox: Type['Toolbox']
 
 def make_default_factories()->FCFactories:
     return FCFactories(
@@ -51,7 +59,6 @@ def make_default_factories()->FCFactories:
         scope=Scope,
         program=Program,
         graph_builder=GraphBuilderNode,
-        toolbox=Toolbox,
     )
 factories = make_default_factories()
 
@@ -66,7 +73,16 @@ class AbstractScopeContext:
     """
     A ScopeContext promises to maintain, manage,
     fuse, and update the parent scope upon completion
-    of the relevant underlying tasks
+    of the relevant underlying tasks.
+
+    The parent scope contains a builder node,
+    which will ultimately be connected
+    back to to continue the graph chain.
+
+    It is very important to keep in mind that
+    builder nodes are functional. As such, we
+    generally need to retrieve the most current
+    node on a scope.
     """
     def update_parent(self, node: GraphBuilderNode):
         self.parent_scope.builder = node
@@ -89,6 +105,19 @@ class ConditionalContext(AbstractScopeContext):
     """
     A context manager specifically designed for handling
     conditional if/else statements.
+    
+    Mechanically, this class is storing the next node
+    of the sequence we need to attach our forward references
+    onto, and then on enter invoking and thus forking the 
+    intake node from the parent scope. This indeed attaches
+    those forward references, and results in a forked set of
+    GraphBuilder nodes. These nodes are then used to construct subcontexts, 
+    which are then returned. 
+    
+    During exit, the scope, which always has the most up-to-date
+    builders possible stored on them, are retrieved and their nodes
+    merged. This can then be used to replace the builder on the parent
+    node, completing the cycle.
     """
     def __init__(self,
                  parent_scope: 'Scope',
@@ -116,6 +145,14 @@ class WhileContext(AbstractScopeContext):
     Responsible for running the while loop contexts,
     which loop while the python system is not yet emitting
     its jump statement.
+    
+    As is usually the case, the manager begins by causing
+    a fork. This fork is driven by the loop context response.
+    We then make a subscope based on the nominal branch, corrosponding
+     to not emitting a jump.
+
+    It is important to keep in mind that intake_node will capture the
+    loop control prompt here.
     """
     def __init__(self,
                  parent_scope: 'Scope',
@@ -124,15 +161,20 @@ class WhileContext(AbstractScopeContext):
                  ):
         super().__init__(parent_scope, intake_node)
         self.sequence = sequence
+        self.loop_scope: Optional['Scope'] = None
         self.loop_branch: Optional[GraphBuilderNode] = None
         self.escape_branch: Optional[GraphBuilderNode] = None
     def __enter__(self)->'Scope':
         loop_branch, escape_branch = self.intake_node.fork(self.sequence)
-        self.loop_branch = loop_branch
         self.escape_branch = escape_branch
-        return self.parent_scope.fork(loop_branch)
+        self.loop_scope = self.parent_scope.fork(loop_branch)
+        return self.loop_scope
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.loop_branch.attach(self.parent_scope.builder)
+        # Complete the loopback
+        loop_branch = self.loop_scope.builder
+        self.intake_node.attach(loop_branch)
+
+        # The escape branch becomes the new parent scope.
         self.parent_scope.replace_builder(self.escape_branch)
 
 
@@ -148,6 +190,10 @@ class Scope:
     flow control. It provides access to the various
     userspace methods that can be used to build a flow
     control graph and, later, compile it.
+
+    This is the primary control class, and indeed
+    program only calls into it.
+
     """
     def __init__(self,
                  factories: FCFactories,
@@ -155,12 +201,8 @@ class Scope:
                  builder: GraphBuilderNode,
                  head: RZCPNode,  # The head of the entire shebang.
                  program: 'Program',
-
-                 # Required operational parameters
                  resources: Dict[str, AbstractResource],
                  sequences: Dict[str, ZCPNode],
-                 tokenizer: TokenizerInterface,
-                 tag_converter: TagConverter,
                  ):
         """
         Primary
@@ -170,14 +212,10 @@ class Scope:
         :param builder: The builder node in it's current status.
         :param head: The head node of the graph. Always a mock node.
         :param program: The program this is part of.
-
-        Support
         :param resources:
             The available resources for the particular process under consideration. This is
             excluding custom dynamic resources.
         :param sequences: The sequences of zcp nodes we can draw upon, and their names
-        :param tokenizer: The tokenizer we have to draw upon
-        :param tag_converter: The tail converter instance
         """
         self.factories = factories
         self.config = config
@@ -186,8 +224,6 @@ class Scope:
         self.program = program
         self.resources = resources
         self.sequences = sequences
-        self.tokenizer = tokenizer
-        self.tag_converter = tag_converter
         self.builder = builder
 
     def _fetch_resources(self,
@@ -245,7 +281,6 @@ class Scope:
                                     self.resources,
                                     self.sequences,
                                     self.tokenizer,
-                                    self.tag_converter
                                     )
 
     ### Commands.

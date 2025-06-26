@@ -95,7 +95,7 @@ Resources must always be resolved for all placeholders defined in UDPL before th
 
 ## Architecture
 
-Ultimately, the point of the entire frontend system is to turn the input directives into a SZCP graph. If this specialized graph is correctly generated, it can be serialized, sent to the backend, deserialized, compiled, and executed. For those more interested in this process, you may be feel free to refer to the [ZCP system](../ZCP.md)
+Ultimately, the point of the entire frontend system is to turn the input directives into a SZCP graph. If this specialized graph is correctly generated, it can be serialized, sent to the backend, deserialized, compiled, and executed. For those more interested in this process, you may be feel free to refer to the [ZCP system](../ZCP/ZCP.md)
 
 For now, it is safe to say the following stages occur:
 
