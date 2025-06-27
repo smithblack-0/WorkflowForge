@@ -7,13 +7,12 @@ the full lowering pipeline works correctly with resources, tools, and flow contr
 
 import unittest
 import numpy as np
-from unittest.mock import Mock
 from typing import Dict, Any, Callable
 
 # Import the modules under test
 from src.workflow_forge.zcp.nodes import ZCPNode, RZCPNode, SZCPNode, LZCPNode
 from src.workflow_forge.parsing.config_parsing import Config
-from src.workflow_forge.backend.tag_converter import TagConverter
+from src.workflow_forge.zcp.tag_converter import TagConverter
 from src.workflow_forge.tokenizer_interface import TokenizerInterface
 from src.workflow_forge.resources import AbstractResource, StaticStringResource, ListSamplerResource
 

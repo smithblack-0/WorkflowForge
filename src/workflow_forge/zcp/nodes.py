@@ -13,9 +13,9 @@ zcp supports Directed Cyclic IO Graphs (DCG-IO), which are directed graphs that:
 """
 import numpy as np
 import textwrap
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from typing import Optional, List, Callable, Dict, Any, Tuple
-from src.workflow_forge.backend.tag_converter import TagConverter
+from src.workflow_forge.zcp.tag_converter import TagConverter
 from ..tokenizer_interface import TokenizerInterface
 from ..resources import AbstractResource
 from ..parsing.config_parsing import Config
@@ -546,7 +546,7 @@ class SZCPNode:
     def lower(self,
             tokenizer: TokenizerInterface,
             tag_converter: TagConverter,
-            tool_registry: Dict[str, Callable[[np.ndarray], np.ndarray]],
+            tool_registry: Dict[str, Callable[[str], str]],
             lowered_map: Optional[Dict['SZCPNode', 'LZCPNode']] = None
             ) -> 'LZCPNode':
         """

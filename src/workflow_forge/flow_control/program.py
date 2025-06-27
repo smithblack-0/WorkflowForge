@@ -17,13 +17,14 @@ the RZCP nodes together.
 import numpy as np
 import warnings
 import copy
-from typing import Dict, Tuple, Any, Optional, List, Type
+import textwrap
+from typing import Dict, Tuple, Any, Optional, List, Type, Callable
 
 from src.workflow_forge.zcp.builder import GraphBuilderNode
 from ..parsing.config_parsing import Config
 from ..resources import AbstractResource, StaticStringResource
 from ..zcp.nodes import ZCPNode, RZCPNode
-from ..tokenizer_interface import TokenizerInterface
+from ..zcp.workflow import Workflow
 from dataclasses import dataclass
 
 class ScopeException(Exception):
@@ -53,6 +54,7 @@ class FCFactories:
     scope: Type['Scope']
     program: Type['Program']
     graph_builder: Type['GraphBuilderNode']
+    specification: Type['Workflow']
 
 def make_default_factories()->FCFactories:
     return FCFactories(
@@ -61,6 +63,7 @@ def make_default_factories()->FCFactories:
         scope=Scope,
         program=Program,
         graph_builder=GraphBuilderNode,
+        specification=Workflow,
     )
 factories = make_default_factories()
 
@@ -470,26 +473,54 @@ class Program:
               other_program: 'Program'
               ) -> None:
         """Merge another program's state into this program."""
-        self.toolboxes.extend(other_program.toolboxes)
         self.extractions.update(other_program.extractions)
 
     # Compilation
-    def compile(self,
-                backend: str = "default"
-                ) -> 'ControllerFactory':
-        """Compile the program to a controller factory using specified backend."""
+    @staticmethod
+    def _convert_resources(resources: Dict[str, Any])-> Dict[str, AbstractResource]:
+        """
+        Converts anything passed in into string abstract resources... if possible.
+        :param resources: The resources, usually from python directly
+        :return: Converted resources
+        """
+        try:
+            output = {}
+            for name, resource in resources.items():
+                resource = str(resource)
+                resource = StaticStringResource(resource)
+                output[name] = resource
+        except Exception as e:
+            msg = f"""
+            Conversion of python into resources failed
+            This usually means you are passing something that 
+            cannot be converted into a string.
+            """
+            msg = textwrap.dedent(msg)
+            raise ProgramException(msg) from e
+
+
+    def compile(self)->Callable[[Dict[str, AbstractResource]], Workflow]:
+        """
+        Compile this to a usable specification, that can then be dispatched by a client
+        or lowered to tensors.
+        :param self:
+        :return:
+        """
         # Get the final RZCP graph from the scope's builder
         final_graph = self.scope.builder.head.next_zone
         if final_graph is None:
             raise ProgramException("Cannot compile empty program - no sequences were added")
 
-        raise NotImplementedError()
-        return compile_program(
-            graph=final_graph,
-            toolboxes=self.toolboxes,
-            extractions=self.extractions,
-            backend=backend
-        )
+        # Define and return the workflow factory
+        def workflow_factory(argument_resources: Dict[str, Any])->Workflow:
+            argument_resources = self._convert_resources(argument_resources)
+            szcp = final_graph.lower(argument_resources)
+            return Workflow(
+                     config=self.config,
+                     nodes=szcp,
+                     extractions=self.extractions
+                     )
+        return workflow_factory
 
     ### Scope Passthroughs.
     #
