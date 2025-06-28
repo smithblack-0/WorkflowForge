@@ -32,6 +32,38 @@ class Config:
     tools: List[str]
     misc: Dict[str, Any]
 
+    def serialize(self) -> Dict[str, Any]:
+        """
+        Serialize config to a dictionary suitable for transport.
+        Returns data as-is since msgpack will handle most types correctly.
+        """
+        return {
+            "zone_patterns": self.zone_patterns,
+            "required_patterns": self.required_patterns,
+            "valid_tags": self.valid_tags,
+            "default_max_token_length": self.default_max_token_length,
+            "sequences": self.sequences,
+            "control_pattern": self.control_pattern,
+            "escape_patterns": self.escape_patterns,  # Let msgpack handle tuple serialization
+            "tools": self.tools,
+            "misc": self.misc
+        }
+
+    @classmethod
+    def deserialize(cls, data: Dict[str, Any]) -> 'Config':
+        """
+        Deserialize config from dictionary, restoring proper types.
+        Explicitly converts escape_patterns back to tuple.
+        """
+        # Make a copy to avoid mutating input
+        config_data = data.copy()
+
+        # Convert escape_patterns back to tuple if it was converted to list
+        if "escape_patterns" in config_data:
+            config_data["escape_patterns"] = tuple(config_data["escape_patterns"])
+
+        return cls(**config_data)
+
 
 class ConfigParseError(Exception):
     """Exception raised when config parsing fails."""

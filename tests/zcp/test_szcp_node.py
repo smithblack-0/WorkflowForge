@@ -13,6 +13,7 @@ Tests cover:
 
 import unittest
 import numpy as np
+import msgpack
 from unittest.mock import Mock
 from typing import Dict, Any
 
@@ -917,6 +918,33 @@ class TestSZCPSerialization(BaseSZCPNodeTest):
 
         self.assertTrue(traverse_and_compare(original, deserialized, visited_orig, visited_deser))
 
+    # Add this test method to the TestSZCPSerialization class in test_szcp_node.py
+
+    def test_msgpack_round_trip_serialization(self):
+        """Test that SZCP serialization survives JSON round-trip (string key conversion)."""
+        # Create a simple chain
+        head_node = self.create_node_chain(2)
+
+        # Serialize to dict
+        serialized_dict = head_node.serialize()
+
+        # Simulate workflow round-trip
+        pack_str = msgpack.packb(serialized_dict)
+        parsed_dict = msgpack.unpackb(pack_str, strict_map_key=False)
+
+        # Verify JSON converted keys to strings
+        self.assertIn(0, parsed_dict)
+        self.assertIn(1, parsed_dict)
+
+        # This SHOULD succeed - deserialize should handle string keys
+        deserialized = SZCPNode.deserialize(parsed_dict)
+
+        # Verify the deserialization worked correctly
+        self.assertIsInstance(deserialized, SZCPNode)
+        self.assertEqual(deserialized.block, 0)
+        self.assertIsNotNone(deserialized.next_zone)
+        self.assertEqual(deserialized.next_zone.block, 1)
+        self.assertIsNone(deserialized.next_zone.next_zone)
 
 if __name__ == "__main__":
     unittest.main()

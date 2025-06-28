@@ -7,6 +7,7 @@ the full lowering pipeline works correctly with resources, tools, and flow contr
 
 import unittest
 import numpy as np
+import json
 from typing import Dict, Any, Callable
 
 # Import the modules under test
@@ -15,6 +16,7 @@ from src.workflow_forge.parsing.config_parsing import Config
 from src.workflow_forge.zcp.tag_converter import TagConverter
 from src.workflow_forge.tokenizer_interface import TokenizerInterface
 from src.workflow_forge.resources import AbstractResource, StaticStringResource, ListSamplerResource
+from src.workflow_forge.zcp.workflow import Workflow, LoweredWorkflow
 
 
 class BaseIntegrationTest(unittest.TestCase):
@@ -801,6 +803,244 @@ class TestZCPLoweringIntegration(BaseIntegrationTest):
         with self.assertRaises(Exception) as context:
             szcp = rzcp.lower(resources=partial_runtime)
 
+
+class TestWorkflowIntegration(BaseIntegrationTest):
+    """Integration tests for Workflow transport layer with real objects."""
+
+    def setUp(self):
+        """Set up workflow-specific test fixtures on top of base integration setup."""
+        super().setUp()
+
+        # Standard extractions for testing
+        self.test_extractions = {
+            "training_data": ["Training"],
+            "correct_answers": ["Correct"],
+            "all_feedback": ["Training", "Correct", "Feedback"]
+        }
+
+    def _create_zcp_with_mixed_resources(self) -> ZCPNode:
+        """Create ZCP chain with standard, custom, and argument resources."""
+        resource_specs = {
+            "principle": {
+                "name": "constitution",
+                "arguments": None,
+                "type": "standard"
+            },
+            "max_tries": {
+                "name": "repeat_counter",
+                "arguments": None,
+                "type": "custom"
+            },
+            "user_query": {
+                "name": "user_input",
+                "arguments": None,
+                "type": "argument"
+            }
+        }
+
+        template = "[Prompt] Using principle: {principle}. Max tries: {max_tries}. User asks: {user_query} [Answer]"
+
+        return self.create_zcp_node(
+            sequence="mixed",
+            block=0,
+            template=template,
+            resource_specs=resource_specs,
+            zone_advance_str="[Answer]",
+            tags=["Training"],
+            timeout=1000
+        )
+
+    def _create_simple_zcp_chain(self) -> ZCPNode:
+        """Create a simple linear ZCP chain with no placeholders."""
+        # First zone: prompt zone
+        node1 = ZCPNode(
+            sequence="setup",
+            block=0,
+            construction_callback=lambda resources: "[Prompt] What is ethics? [Answer]",
+            resource_specs={},
+            raw_text="[Prompt] What is ethics? [Answer]",
+            zone_advance_str="[Answer]",
+            tags=["Training"],
+            timeout=500
+        )
+
+        # Second zone: answer zone
+        node2 = ZCPNode(
+            sequence="setup",
+            block=0,
+            construction_callback=lambda resources: " Ethics is about right and wrong. [EOS]",
+            resource_specs={},
+            raw_text=" Ethics is about right and wrong. [EOS]",
+            zone_advance_str="[EOS]",
+            tags=["Correct"],
+            timeout=500
+        )
+
+        # Link them
+        node1.next_zone = node2
+        return node1
+
+    def test_workflow_serialize_deserialize_round_trip(self):
+        """Test basic workflow transport: Workflow → msgpack+base64 → Workflow."""
+        # Setup: Create real SZCP using existing infrastructure
+        zcp = self._create_zcp_with_mixed_resources()
+        rzcp = zcp.lower(self.compile_time_resources, self.config)
+        szcp = rzcp.lower(resources=self.runtime_resources)
+
+        # Create workflow
+        original_workflow = Workflow(
+            config=self.config,
+            nodes=szcp,
+            extractions=self.test_extractions
+        )
+
+        # Execute: Serialize to msgpack+base64 string
+        serialized_string = original_workflow.serialize()
+
+        # Verify: Valid base64 string produced
+        self.assertIsInstance(serialized_string, str)
+
+        # Verify: Can decode back to verify structure
+        import base64
+        import msgpack
+        binary_data = base64.b64decode(serialized_string.encode('utf-8'))
+        parsed_data = msgpack.unpackb(binary_data, strict_map_key=False)
+        self.assertIn("config", parsed_data)
+        self.assertIn("nodes", parsed_data)
+        self.assertIn("extractions", parsed_data)
+
+        # Execute: Deserialize back to Workflow
+        deserialized_workflow = Workflow.deserialize(serialized_string)
+
+        # Verify: Workflow reconstructed correctly
+        self.assertIsInstance(deserialized_workflow, Workflow)
+
+        # Verify: Config preserved (including tuple conversion)
+        self.assertIsInstance(deserialized_workflow.config, Config)
+        self.assertEqual(deserialized_workflow.config.valid_tags, self.config.valid_tags)
+        self.assertEqual(deserialized_workflow.config.sequences, self.config.sequences)
+        self.assertEqual(deserialized_workflow.config.zone_patterns, self.config.zone_patterns)
+        self.assertEqual(deserialized_workflow.config.escape_patterns,
+                         self.config.escape_patterns)  # Tuple should be preserved
+
+        # Verify: Extractions preserved exactly
+        self.assertEqual(deserialized_workflow.extractions, self.test_extractions)
+
+        # Verify: SZCP node structure preserved
+        self.assertIsInstance(deserialized_workflow.nodes, SZCPNode)
+        self.assertEqual(deserialized_workflow.nodes.sequence, "mixed")
+
+        # Verify: Resource resolution preserved (all three types)
+        deserialized_text = deserialized_workflow.nodes.text
+        self.assertIn("Be kind and just", deserialized_text)  # Standard resource
+        self.assertIn("3", deserialized_text)  # Custom resource
+        self.assertIn("What is consciousness?", deserialized_text)  # Argument resource
+
+    def test_workflow_full_pipeline_to_lowered(self):
+        """Test complete pipeline: Workflow → serialize → deserialize → lower → LoweredWorkflow."""
+        # Setup: Create real SZCP
+        zcp = self._create_zcp_with_mixed_resources()
+        rzcp = zcp.lower(self.compile_time_resources, self.config)
+        szcp = rzcp.lower(resources=self.runtime_resources)
+
+        # Create and serialize workflow
+        workflow = Workflow(
+            config=self.config,
+            nodes=szcp,
+            extractions=self.test_extractions
+        )
+
+        # Execute: Full pipeline
+        serialized = workflow.serialize()
+        deserialized = Workflow.deserialize(serialized)
+        lowered_workflow = deserialized.lower(self.tokenizer, self.tool_registry)
+
+        # Verify: LoweredWorkflow created successfully
+        self.assertIsInstance(lowered_workflow, LoweredWorkflow)
+
+        # Verify: Components are real objects
+        self.assertEqual(lowered_workflow.tokenizer, self.tokenizer)
+        self.assertIsInstance(lowered_workflow.tag_converter, TagConverter)
+        self.assertIsInstance(lowered_workflow.nodes, LZCPNode)
+
+        # Verify: Extractions were tensorized
+        self.assertIn("training_data", lowered_workflow.extractions)
+        self.assertIn("correct_answers", lowered_workflow.extractions)
+        self.assertIn("all_feedback", lowered_workflow.extractions)
+
+        for extraction_name, tensor in lowered_workflow.extractions.items():
+            self.assertIsInstance(tensor, np.ndarray)
+            self.assertEqual(tensor.dtype, np.bool_)
+
+        # Verify: LZCP has proper tokenization
+        lzcp = lowered_workflow.nodes
+        self.assertIsInstance(lzcp.tokens, np.ndarray)
+        self.assertIsInstance(lzcp.zone_advance_tokens, np.ndarray)
+        self.assertIsInstance(lzcp.tags, np.ndarray)
+        self.assertEqual(lzcp.tags.dtype, np.bool_)
+        self.assertIsInstance(lzcp.escape_tokens, tuple)
+        self.assertEqual(len(lzcp.escape_tokens), 2)
+
+    def test_workflow_with_tools_integration(self):
+        """Test that tool callbacks survive the workflow transport layer."""
+        # Setup: Create simple SZCP and add tool
+        zcp = self._create_simple_zcp_chain()
+        rzcp = zcp.lower({}, self.config)
+        szcp = rzcp.lower(resources={})
+
+        # Add tool to the SZCP node
+        szcp.tool_name = "calculator"
+        szcp.output = True
+
+        # Create workflow and do full round-trip
+        workflow = Workflow(
+            config=self.config,
+            nodes=szcp,
+            extractions={"results": ["Correct"]}
+        )
+
+        # Execute: Serialize → deserialize → lower
+        serialized = workflow.serialize()
+        deserialized = Workflow.deserialize(serialized)
+        lowered = deserialized.lower(self.tokenizer, self.tool_registry)
+
+        # Verify: Tool integration preserved
+        lzcp = lowered.nodes
+        self.assertTrue(lzcp.output)
+        self.assertIsNotNone(lzcp.tool_callback)
+        self.assertTrue(callable(lzcp.tool_callback))
+
+        # Verify: Tool callback actually works
+        self.assertIs(lzcp.tool_callback, self.calculator_callback)
+        test_tokens = np.array([1, 2, 3], dtype=np.int32)
+        result = lzcp.tool_callback(test_tokens)
+        np.testing.assert_array_equal(result, np.array([42], dtype=np.int32))
+
+    def test_workflow_msgpack_type_preservation(self):
+        """Test that msgpack preserves types correctly (int keys, but not tuples)."""
+        # Setup: Create simple SZCP
+        zcp = self._create_simple_zcp_chain()
+        rzcp = zcp.lower({}, self.config)
+        szcp = rzcp.lower(resources={})
+
+        # Create workflow
+        workflow = Workflow(
+            config=self.config,
+            nodes=szcp,
+            extractions={"test": ["Training"]}
+        )
+
+        # Execute: Round-trip serialization
+        serialized = workflow.serialize()
+        deserialized = Workflow.deserialize(serialized)
+
+        # Verify: Config tuple handling works (Config.deserialize should convert list back to tuple)
+        self.assertIsInstance(deserialized.config.escape_patterns, tuple)
+        self.assertEqual(len(deserialized.config.escape_patterns), 2)
+
+        # Verify: SZCP node indices are preserved as ints (this should work with msgpack)
+        # This tests that the underlying SZCP serialization preserves int keys
+        self.assertIsInstance(deserialized.nodes, SZCPNode)
 
 if __name__ == "__main__":
     unittest.main()

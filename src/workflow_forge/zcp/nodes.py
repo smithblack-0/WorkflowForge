@@ -738,6 +738,7 @@ class SZCPNode:
 
             if link_data["jump_zone_index"] is not None:
                 node.jump_zone = nodes[link_data["jump_zone_index"]]
+
     def __hash__(self):
         return id(self)
 

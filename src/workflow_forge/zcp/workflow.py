@@ -6,22 +6,47 @@ transport, compare themselves, and generally exist to transport program-level
 data in addition to the zone level data.
 """
 
-import json
+import msgpack
+import base64
 import dataclasses
 import numpy as np
 from dataclasses import dataclass
-from typing import Tuple, List, Dict, Callable
+from typing import Tuple, List, Dict, Callable, Type
 
 from .nodes import SZCPNode, LZCPNode
 from .tag_converter import TagConverter
 from ..parsing.config_parsing import Config
 from ..tokenizer_interface import TokenizerInterface
+
+# Let me tell you I have been developing awhile without actually
+# telling you: I HATE strong coupling.
+#
+# This is a fairly common trick of mine - I put
+# classes in a factory so that I can easily swap it out
+# for unit testing with mocking.
+
+@dataclass
+class WFFactories:
+    """Construction factories for the various class dependencies"""
+    tag_converter: Type[TagConverter]
+    SZCP_node: Type[SZCPNode]
+    Config: Type[Config]
+
+def make_default_factories()->WFFactories:
+    return WFFactories(TagConverter,
+                       SZCPNode,
+                       Config,
+                       )
+default_factories = make_default_factories()
+
+
 @dataclass
 class Workflow:
     """
     The main transport specification, designed to convey SZCP,
     tagging information, and other such details to the remote
-    backend. It is also capable of deserializing or lowering itself.
+    backend. It is also capable of deserializing or lowering itself
+    to the final tensor set.
 
     attributes:
     - config: The configuration file
@@ -31,6 +56,7 @@ class Workflow:
     config: Config
     nodes: SZCPNode
     extractions: Dict[str, List[str]]
+    factories: WFFactories = default_factories
 
     def serialize(self)->str:
         """
@@ -39,15 +65,17 @@ class Workflow:
         :return: The serialized JSON string
         """
         stub = {
-            "config" : dataclasses.asdict(self.config),
+            "config" : self.config.serialize(),
             "nodes" : self.nodes.serialize(),
             "extractions" : self.extractions,
         }
-        return json.dumps(stub)
+        msg = msgpack.packb(stub)
+        return base64.b64encode(msg).decode('utf-8')
 
     @classmethod
     def deserialize(cls,
-                    json_str:str
+                    msg_str:str,
+                    factories: WFFactories = default_factories
                     )-> "Workflow":
         """
         Attempts to deserialize the given JSON string into the
@@ -55,12 +83,13 @@ class Workflow:
         here, they really belong as an additional check in the
         backend.
 
-        :param json_str: The json payload.
+        :param msg_str: The payload.
         :return: The specification.
         """
-        stub = json.loads(json_str)
-        config = Config(**stub["config"])
-        nodes = SZCPNode.deserialize(stub["nodes"])
+        msg = base64.b64decode(msg_str.encode('utf-8'))
+        stub = msgpack.unpackb(msg, strict_map_key=False)
+        config = factories.Config.deserialize(stub["config"])
+        nodes = factories.SZCP_node.deserialize(stub["nodes"])
         extractions = stub["extractions"]
 
         return Workflow(config=config, nodes=nodes, extractions=extractions)
@@ -76,7 +105,7 @@ class Workflow:
         :param tools: The tools callback repository
         :return: The lowered workflow.
         """
-        tag_converter = TagConverter(self.config.valid_tags)
+        tag_converter = self.factories.tag_converter(self.config.valid_tags)
         nodes = self.nodes.lower(tokenizer, tag_converter, tools)
         extractions = {key : tag_converter.tensorize(tags) for key, tags in self.extractions.items()}
         return LoweredWorkflow(
@@ -94,7 +123,7 @@ class LoweredWorkflow:
     the tag converter built, callbacks resolved,
     etc. The only thing left, really, is to
     convert it to tensors and feed it to
-    the TTFA system,
+    the TTFA system.
     """
     tag_converter: TagConverter
     tokenizer: TokenizerInterface
