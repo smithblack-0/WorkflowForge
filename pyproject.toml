@@ -32,7 +32,8 @@ dependencies = [
     "torch>=1.9.0",
     "numpy>=1.21.0",
     "toml>=0.10.0",
-    "msgpack>=1.0.0"
+    "msgpack>=1.0.0",
+    "plotly"
 ]
 
 [project.optional-dependencies]
