@@ -187,7 +187,7 @@ def create_plotly_graph(graph_data: GraphData) -> go.Figure:
         margin=dict(b=20, l=5, r=5, t=40),
         annotations=[
             dict(
-                text="Workflow Forge Graph Visualization - Purple Loopbacks",
+                text="This is interactive! Hover over a node for details",
                 showarrow=False,
                 xref="paper", yref="paper",
                 x=0.005, y=-0.002,

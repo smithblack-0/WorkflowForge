@@ -841,9 +841,6 @@ class SZCPNode:
                 "input": szcp_node.input,
                 "output": szcp_node.output,
                 "tool_name": szcp_node.tool_name,
-                "has_next_zone": szcp_node.next_zone is not None,
-                "has_jump_zone": szcp_node.jump_zone is not None,
-                "is_terminal": szcp_node.is_terminal(),
                 "text": szcp_node.text  # Full text at bottom since it's long
             }
 
