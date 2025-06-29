@@ -19,6 +19,15 @@ from src.workflow_forge.zcp.tag_converter import TagConverter
 from ..tokenizer_interface import TokenizerInterface
 from ..resources import AbstractResource
 from ..parsing.config_parsing import Config
+try:
+    import networkx as nx
+    import igraph as ig
+    from .rendering import GraphNode, GraphData, create_plotly_graph
+    VISUALIZATION_ENABLED = True
+except ImportError as vis_err:
+    VISUALIZATION_ENABLED = False
+    reason = vis_err
+
 ## Setup the error banks
 
 class GraphLoweringError(Exception):
@@ -745,8 +754,125 @@ class SZCPNode:
     def __eq__(self, other):
         return self is other
 
+    def visualize(self, save_to_file: Optional[str] = None) -> None:
+        """
+        Create an interactive Plotly visualization of this SZCP workflow graph.
 
+        Uses igraph's Sugiyama hierarchical layout algorithm to automatically
+        arrange nodes, then converts to GraphData format for rendering.
 
+        Args:
+            save_to_file: Optional filename to save the figure. If provided, saves to file
+                         instead of displaying. Supports .html format.
+        """
+        # Check if visualization was enabled
+        if not VISUALIZATION_ENABLED:
+            msg = """
+           The visualization libraries could not be successfully imported.
+           Most likely one of igraph, networkx, or plotly is not installed.
+
+           Run:
+
+           pip install python-igraph
+           pip install plotly
+           pip install networkx
+
+           To ensure they are all installed
+           """
+            msg = textwrap.dedent(msg)
+            raise NotImplementedError(msg) from reason
+
+        # Extract all nodes from SZCP graph
+        all_nodes = self._discover_all_nodes()
+
+        # Build NetworkX graph for layout algorithm
+        G = nx.DiGraph()
+        for szcp_node, index in all_nodes.items():
+            G.add_node(index)
+
+            if szcp_node.next_zone:
+                target_index = all_nodes[szcp_node.next_zone]
+                G.add_edge(index, target_index)
+
+            if szcp_node.jump_zone:
+                target_index = all_nodes[szcp_node.jump_zone]
+                G.add_edge(index, target_index)
+
+        # Apply Sugiyama hierarchical layout (left-to-right orientation)
+        ig_graph = ig.Graph.from_networkx(G)
+        layout = ig_graph.layout("sugiyama")
+
+        # Map layout positions back to original NetworkX node IDs
+        # The layout includes positions for both original nodes and dummy nodes,
+        # but the first N positions correspond to our original N nodes
+        nx_node_list = list(G.nodes())
+        positions = {}
+        for i in range(len(nx_node_list)):
+            original_node_id = nx_node_list[i]
+            positions[original_node_id] = (layout[i][1], -layout[i][0])
+
+        # Simple color cycling - change color when sequence changes
+        colors = ['#FF6B6B', '#45B7D1', '#2ECC71', '#F39C12', '#9B59B6', '#1ABC9C', '#E67E22']
+        current_sequence = None
+        color_index = -1
+
+        # Convert to GraphNode objects for rendering
+        graph_nodes = []
+        index_to_node = {index: szcp_node for szcp_node, index in all_nodes.items()}
+
+        for index in sorted(positions.keys()):
+            szcp_node = index_to_node[index]
+            x, y = positions[index]
+
+            # Assign new color when sequence changes
+            if szcp_node.sequence != current_sequence:
+                current_sequence = szcp_node.sequence
+                color_index = (color_index + 1) % len(colors)
+
+            # Build node data for hover information - ALL available data for debugging
+            node_data = {
+                "sequence": szcp_node.sequence,
+                "block": szcp_node.block,
+                "tags": szcp_node.tags,
+                "timeout": szcp_node.timeout,
+                "zone_advance_str": szcp_node.zone_advance_str,
+                "jump_advance_str": szcp_node.jump_advance_str,
+                "escape_strs": szcp_node.escape_strs,
+                "input": szcp_node.input,
+                "output": szcp_node.output,
+                "tool_name": szcp_node.tool_name,
+                "has_next_zone": szcp_node.next_zone is not None,
+                "has_jump_zone": szcp_node.jump_zone is not None,
+                "is_terminal": szcp_node.is_terminal(),
+                "text": szcp_node.text  # Full text at bottom since it's long
+            }
+
+            # Create GraphNode
+            graph_node = GraphNode(
+                id=str(index),
+                name=szcp_node.sequence,
+                color=colors[color_index],
+                x=x,
+                y=y,
+                nominal=str(all_nodes[szcp_node.next_zone]) if szcp_node.next_zone else None,
+                jump=str(all_nodes[szcp_node.jump_zone]) if szcp_node.jump_zone else None,
+                node_data=node_data
+            )
+
+            graph_nodes.append(graph_node)
+
+        # Create GraphData and use existing rendering system
+        graph_data = GraphData(graph_nodes, "SZCP Workflow Visualization")
+        fig = create_plotly_graph(graph_data)
+
+        if save_to_file is None:
+            fig.show()
+        else:
+            # Save as HTML - preserves full interactivity
+            if not save_to_file.endswith('.html'):
+                save_to_file = save_to_file + '.html'
+            fig.write_html(save_to_file)
+            print(f"Workflow visualization saved to: {save_to_file}")
 
 @dataclass
 class LZCPNode:
