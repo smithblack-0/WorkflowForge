@@ -32,13 +32,12 @@ When something has all green checkmarks, it is completely done to initial releas
 | State machine PoC              |✅|✅|✅|✅|✅|
 | UDPL                           |✅|✅|✅|✅|✅|
 | Resources                      |✅|🚧|🚧|❌|❌|
-| SFCS-Constuction               |✅|✅|🚧|❌|❌|
-| SFCS-Intake                    |✅|🚧|❌|❌|❌|
-| SFCS-Tools                     |❌|❌|❌|❌|❌|
+| SFCS-System                    |✅|✅|🚧|❌|❌|
 | ZCP-Architecture               |✅|✅|✅|✅|✅|
 | ZCP-Nodes                      |✅|✅|✅|✅|✅|
 | ZCP-GraphBuilder               |✅|✅|✅|❌|❌|
 | ZCP-Serialization              |✅|✅|✅|✅|✅|
+| ZCP-visualization              |✅|✅|✅|✅|✅|
 | Backend - Compiling/Flattening |✅|❌|❌|❌|❌|
 | Backend - MOA                  |✅|❌|❌|❌|❌|
 | Backend - Support              |✅|❌|❌|❌|❌|

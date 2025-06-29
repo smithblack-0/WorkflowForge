@@ -11,7 +11,7 @@ import base64
 import dataclasses
 import numpy as np
 from dataclasses import dataclass
-from typing import Tuple, List, Dict, Callable, Type
+from typing import Tuple, List, Dict, Callable, Type, Optional
 
 from .nodes import SZCPNode, LZCPNode
 from .tag_converter import TagConverter
@@ -114,6 +114,16 @@ class Workflow:
             nodes=nodes,
             extractions= extractions
         )
+
+    def visualize(self, file_name: Optional[str]=None)->None:
+        """
+        Produces a visualization of the workflow
+        from the underlying SZCP nodes. If a filename is
+        provided, it shows up there; else it shows in
+        the console or cell/
+        :param file_name: Location to save workflow html viewer at
+        """
+        self.nodes.visualize(save_to_file=file_name)
 
 @dataclass
 class LoweredWorkflow:

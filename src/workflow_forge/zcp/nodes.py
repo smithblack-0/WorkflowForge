@@ -20,6 +20,10 @@ from ..tokenizer_interface import TokenizerInterface
 from ..resources import AbstractResource
 from ..parsing.config_parsing import Config
 try:
+    # Most users do not need this. But if you are
+    # trying to visualize the nodes for debugging your
+    # workflow, this is involved in showing what it
+    # compiles to.
     import networkx as nx
     import igraph as ig
     from .rendering import GraphNode, GraphData, create_plotly_graph

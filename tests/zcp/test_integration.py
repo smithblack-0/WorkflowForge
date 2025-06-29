@@ -9,6 +9,8 @@ import unittest
 import numpy as np
 import json
 from typing import Dict, Any, Callable
+import tempfile
+import os
 
 # Import the modules under test
 from src.workflow_forge.zcp.nodes import ZCPNode, RZCPNode, SZCPNode, LZCPNode
@@ -1041,6 +1043,32 @@ class TestWorkflowIntegration(BaseIntegrationTest):
         # Verify: SZCP node indices are preserved as ints (this should work with msgpack)
         # This tests that the underlying SZCP serialization preserves int keys
         self.assertIsInstance(deserialized.nodes, SZCPNode)
+
+    def test_workflow_visualization_saves_file(self):
+        """Test that workflow.visualize() saves an HTML file and the file exists."""
+
+        # Setup: Create real SZCP workflow
+        zcp = self._create_zcp_with_mixed_resources()
+        rzcp = zcp.lower(self.compile_time_resources, self.config)
+        szcp = rzcp.lower(resources=self.runtime_resources)
+
+        # Create workflow
+        workflow = Workflow(
+            config=self.config,
+            nodes=szcp,
+            extractions=self.test_extractions
+        )
+
+        # Execute: Save visualization to temporary file
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_file_path = os.path.join(temp_dir, "test_workflow_visualization.html")
+
+            # Call visualize with file path
+            workflow.visualize(file_name=html_file_path)
+
+            # Verify: File was created
+            self.assertTrue(os.path.exists(html_file_path))
+
 
 if __name__ == "__main__":
     unittest.main()
