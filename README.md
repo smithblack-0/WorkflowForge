@@ -82,7 +82,7 @@ Answer the following question, thinking it
 through from a first person perspective {user_question}
 [Answer]"""
 [reasoning.user_question]
-type="control"
+type="argument"
 name="question"
 
 
@@ -106,7 +106,7 @@ Write Python-like code that compiles to GPU execution. Resources, seen as an emp
 program = forge.new_program(sequences, {}, config)
 program.run("setup")
 with program.loop("control") as loop:
-    loop.run("reasoning",  question="Are you alive?")  # Model decides when to break via [Jump] token
+    loop.run("reasoning")  # Model decides when to break via [Jump] token
 program.run("conclusion")
 program.extract("training_data", tags=["answer"])
 
@@ -127,7 +127,7 @@ client = forge.make_session(backend, config)
 
 samples = []
 for batch in range(1000):
-    workflow = workflow_factory() #<- This is sampling resources if they existing. This allows feedback between batches.
+    workflow = workflow_factory(question="Are you alive") #<- This is sampling resources
     results = client.request(config, workflow, batch_size=500)
     samples.extend(results["training_data"])
 ```

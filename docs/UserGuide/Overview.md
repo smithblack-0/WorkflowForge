@@ -107,8 +107,6 @@ For now, it is safe to say the following stages occur:
 
 ## Simple End-to-End Example
 
-UNFINISHED - needs to be revised once the client system is finalized.
-
 ```toml
 [config]
 zone_patterns = ["[Prompt]", "[Answer]", "[EOS]"]
