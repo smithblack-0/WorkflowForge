@@ -5,9 +5,9 @@ of the constraints.
 """
 
 
-from dataclasses import dataclass
-from typing import List, Dict, Any, Optional, Tuple
 import warnings
+from dataclasses import dataclass
+from typing import List, Dict, Any, Tuple
 
 
 @dataclass

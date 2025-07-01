@@ -13,8 +13,10 @@ We use a two-stage flow involving capturing the tags in use, then
 building an object that can convert tag collections when all tags
 are captured.
 """
+from typing import List
+
 import numpy as np
-from typing import Dict, List
+
 
 class TagConverter:
     """

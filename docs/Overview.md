@@ -8,7 +8,6 @@
 Capabilities explicitly supported by the project are:
 
 * Server/Client split. The client may produce workflows and dispatch them to a server, which then serializes and run it. 
-* Easy configuration of servers and clients. ATM, however, flow control is not pa
 
 
 * Straightforward prompting configuration at all levels of complexity from beginner to expert.

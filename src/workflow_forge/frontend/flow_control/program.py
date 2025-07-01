@@ -14,18 +14,18 @@ system. Of note, the ZCP nodes perform the actual lowering
 process; this just invokes those functions and links
 the RZCP nodes together.
 """
-import numpy as np
-import warnings
 import copy
 import textwrap
+import warnings
+from dataclasses import dataclass
 from typing import Dict, Tuple, Any, Optional, List, Type, Callable
 
-from src.workflow_forge.zcp.builder import GraphBuilderNode
-from ..parsing.config_parsing import Config
-from ..resources import AbstractResource, StaticStringResource
-from ..zcp.nodes import ZCPNode, RZCPNode
-from ..zcp.workflow import Workflow
-from dataclasses import dataclass
+from workflow_forge.resources import AbstractResource, StaticStringResource
+from workflow_forge.zcp.nodes import ZCPNode, RZCPNode
+from workflow_forge.zcp.workflow import Workflow
+from workflow_forge.frontend.parsing.config_parsing import Config
+from workflow_forge.zcp.builder import GraphBuilderNode
+
 
 class ScopeException(Exception):
     """Exception raised when something else fails."""
@@ -54,7 +54,9 @@ class FCFactories:
     scope: Type['Scope']
     program: Type['Program']
     graph_builder: Type['GraphBuilderNode']
-    specification: Type['Workflow']
+    workflow: Type['Workflow']
+    str_resource: Type['StaticStringResource']
+
 
 def make_default_factories()->FCFactories:
     return FCFactories(
@@ -63,7 +65,8 @@ def make_default_factories()->FCFactories:
         scope=Scope,
         program=Program,
         graph_builder=GraphBuilderNode,
-        specification=Workflow,
+        workflow=Workflow,
+        str_resource=StaticStringResource,
     )
 
 ### Builder Contexts
@@ -245,7 +248,7 @@ class Scope:
             if not isinstance(resource, AbstractResource):
                 try:
                     resource = str(resource)
-                    resource = StaticStringResource(resource)
+                    resource = self.factories.str_resource(resource)
                 except TypeError as err:
                     raise ScopeException("Cound not convert python resource to text resource") from err
             final_resources[name] = resource
@@ -474,8 +477,8 @@ class Program:
         self.extractions.update(other_program.extractions)
 
     # Compilation
-    @staticmethod
-    def _convert_resources(resources: Dict[str, Any])-> Dict[str, AbstractResource]:
+
+    def _convert_resources(self, resources: Dict[str, Any])-> Dict[str, AbstractResource]:
         """
         Converts anything passed in into string abstract resources... if possible.
         :param resources: The resources, usually from python directly
@@ -485,7 +488,7 @@ class Program:
             output = {}
             for name, resource in resources.items():
                 resource = str(resource)
-                resource = StaticStringResource(resource)
+                resource = self.factories.str_resource(resource)
                 output[name] = resource
             return output
         except Exception as e:
@@ -516,7 +519,7 @@ class Program:
                 argument_resources = {}
             argument_resources = self._convert_resources(argument_resources)
             szcp = final_graph.lower(argument_resources)
-            return Workflow(
+            return self.factories.workflow(
                      config=self.config,
                      nodes=szcp,
                      extractions=self.extractions

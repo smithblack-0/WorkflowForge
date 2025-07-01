@@ -6,17 +6,18 @@ transport, compare themselves, and generally exist to transport program-level
 data in addition to the zone level data.
 """
 
-import msgpack
 import base64
-import dataclasses
-import numpy as np
 from dataclasses import dataclass
-from typing import Tuple, List, Dict, Callable, Type, Optional
+from typing import List, Dict, Callable, Type, Optional
 
+import msgpack
+import numpy as np
+
+from workflow_forge.frontend.parsing.config_parsing import Config
 from .nodes import SZCPNode, LZCPNode
 from .tag_converter import TagConverter
-from ..parsing.config_parsing import Config
 from ..tokenizer_interface import TokenizerInterface
+
 
 # Let me tell you I have been developing awhile without actually
 # telling you: I HATE strong coupling.

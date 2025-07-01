@@ -36,10 +36,9 @@ import workflow_forge as forge
 # We are configuring this for local execution
 backend = forge.make_backend(model,
                              tokenizer,
-                             type="default"
                              )
 server = forge.make_server(backend, address=None, ident=None)
-session = forge.make_session(server)
+client = forge.make_session(server)
 ```
 
 Note until someone competent can show me how to implement auth safely, I am not touching it; api hooks are going to be available, but I do NOT trust myself to not fuck up crypto work somehow. So auth-type will be a registry of capabilities, and auth-payload whatever that ultimately expects.
@@ -50,26 +49,25 @@ Define your prompts and data extraction rules in human-readable TOML:
 
 ```toml
 [config]
-zone_tokens = ["[Prompt]", "[Answer]", "[EOS]"]
-required_tokens = ["[Prompt]"]
+zone_patterns = ["[Prompt]", "[Answer]", "[EOS]"]
+required_patterns = ["[Prompt]"]
 sequences = ["control", "reasoning", "conclusion"]
 valid_tags = ["Training", "Correct", "Feedback"]
-control_token = "[Jump]"
-escape_token = "[Escape]"
-tokenizer_override = {"eos_token" : "[EOS]"}
+control_pattern = "[Jump]"
+escape_patterns = ["[Escape]", "[EndEscape]"]
 
 [[setup]]
 text = """
-[Prompt] From now on you will frequently see [Escape] "[Prompt]" tokens, which indicate you are receiving a prompt from the user or system, and [Escape] "[Answer]" tokens which means you are being given room to answer yourself. Keep that in mind moving forward. After the final [Escape] "[Answer]" token you would need to produce your normal [Escape] "[EOS]" tokens. As a final note, a [Escape] "[Escape]" token should be ignored and just influences external flow control. You should never generate one of these tokens unless you intend to advance zones, unless you first put an escape token in place.
+[Prompt] [Escape] From now on you will frequently see  "[Prompt]" patterns, which indicate you are receiving a prompt from the user or system, and  "[Answer]" patterns which means you are being given room to answer yourself. Keep that in mind moving forward. After the final  "[Answer]" pattern you would need to produce your normal  "[EOS]" pattern. As a final note, a  "[Escape]" or "[EndEscape]" pattern should be ignored and just escapes flow control. If you intend to tell the user something about the pattern using, you better escape the section first [EndEscape]
 [Answer] 
-I understand. The [Escape] "[Prompt]" token means the user has something to say, the [Escape] "[Answer]" token is where I talk, and the [Escape] "[EOS]" token ends a section. I use and see [Escape] "[Escape]" tokens to skip causing actions for the upcoming control token.
+I understand. The [Escape] "[Prompt]" token means the user has something to say, the "[Answer]" token is where I talk, and the "[EOS]" token ends a section. I use and see "[Escape]" "[EndEscape]" tokens to skip causing actions for the upcoming control token. [EndEscape]
 [EOS]
 """
 tags = [[], []]
 
 [[control]]
 text = """
-[Prompt] If satisfied with your answer, emit [Escape] "[Jump]".
+[Prompt] If satisfied with your answer, emit [Escape] "[Jump]". [EndEscape]
 Otherwise continue thinking. If this is the first time you have seen this,
 say nothing.
 [Answer]
@@ -133,7 +131,7 @@ for batch in range(1000):
     results = client.request(config, workflow, batch_size=500)
     samples.extend(results["training_data"])
 ```
-## The Core Innovation: Token Stream Interception
+## Token Stream Interception
 
 Instead of calling the model multiple times with different prompts, Workflow Forge lets the model **control its own execution flow** during a single generation.:
 

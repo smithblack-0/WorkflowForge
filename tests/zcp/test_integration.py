@@ -7,18 +7,17 @@ the full lowering pipeline works correctly with resources, tools, and flow contr
 
 import unittest
 import numpy as np
-import json
 from typing import Dict, Any, Callable
 import tempfile
 import os
 
 # Import the modules under test
-from src.workflow_forge.zcp.nodes import ZCPNode, RZCPNode, SZCPNode, LZCPNode
-from src.workflow_forge.parsing.config_parsing import Config
-from src.workflow_forge.zcp.tag_converter import TagConverter
-from src.workflow_forge.tokenizer_interface import TokenizerInterface
-from src.workflow_forge.resources import AbstractResource, StaticStringResource, ListSamplerResource
-from src.workflow_forge.zcp.workflow import Workflow, LoweredWorkflow
+from workflow_forge.zcp.nodes import ZCPNode, RZCPNode, SZCPNode, LZCPNode
+from workflow_forge.frontend.parsing.config_parsing import Config
+from workflow_forge.zcp.tag_converter import TagConverter
+from workflow_forge.tokenizer_interface import TokenizerInterface
+from workflow_forge.resources import AbstractResource, StaticStringResource, ListSamplerResource
+from workflow_forge.zcp.workflow import Workflow, LoweredWorkflow
 
 
 class BaseIntegrationTest(unittest.TestCase):

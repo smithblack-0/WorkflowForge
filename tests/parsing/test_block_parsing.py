@@ -11,16 +11,15 @@ Tests cover:
 
 import unittest
 import warnings
-from unittest.mock import Mock, MagicMock
-from typing import Dict, Any
+from unittest.mock import Mock
 
 # Import the modules under test
-from src.workflow_forge.parsing.block_parsing import (
+from workflow_forge.frontend.parsing.block_parsing import (
     parse_block, validate_block_structure, parse_text_into_zones,
-    resolve_and_validate_tags, BlockParseError, ZoneInfo
+    resolve_and_validate_tags, BlockParseError
 )
-from src.workflow_forge.parsing.config_parsing import Config
-from src.workflow_forge.zcp.nodes import ZCPNode
+from workflow_forge.frontend.parsing.config_parsing import Config
+from workflow_forge.zcp.nodes import ZCPNode
 
 
 class TestBlockStructureValidation(unittest.TestCase):

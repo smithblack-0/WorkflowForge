@@ -5,13 +5,13 @@ Provides interactive visualization of SZCP workflow graphs using Plotly.
 Supports hover details, node coloring, proper z-ordering, and purple loopback edges.
 """
 
-import plotly.graph_objects as go
-import math
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 
+import plotly.graph_objects as go
+
 if TYPE_CHECKING:
-    from .nodes import SZCPNode
+    pass
 
 
 @dataclass

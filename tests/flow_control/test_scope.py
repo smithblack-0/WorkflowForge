@@ -9,18 +9,18 @@ Tests cover:
 
 import unittest
 import warnings
-from unittest.mock import Mock, patch
-from typing import Dict, Any
+from unittest.mock import Mock
+from typing import Dict
 
 # Import the modules under test
-from src.workflow_forge.flow_control.program import (
+from workflow_forge.frontend.flow_control.program import (
     Scope, FCFactories, ScopeException
 )
-from src.workflow_forge.zcp.builder import GraphBuilderNode
-from src.workflow_forge.zcp.nodes import ZCPNode, RZCPNode
-from src.workflow_forge.parsing.config_parsing import Config
-from src.workflow_forge.resources import AbstractResource, StaticStringResource
-from src.workflow_forge.flow_control.program import ConditionalContext, WhileContext
+from workflow_forge.zcp.builder import GraphBuilderNode
+from workflow_forge.zcp.nodes import ZCPNode, RZCPNode
+from workflow_forge.frontend.parsing.config_parsing import Config
+from workflow_forge.resources import AbstractResource, StaticStringResource
+from workflow_forge.frontend.flow_control.program import ConditionalContext, WhileContext
 
 
 class ScopeTestResources(unittest.TestCase):
@@ -28,11 +28,16 @@ class ScopeTestResources(unittest.TestCase):
 
     def setUp(self):
         """Set up common test fixtures."""
+        # Mock resources (need to be defined first)
+        self.mock_string_resource = Mock(spec=StaticStringResource)
+        self.mock_abstract_resource = Mock(spec=AbstractResource)
+
         # Mock factories
         self.mock_factories = Mock(spec=FCFactories)
         self.mock_factories.condition_context = Mock(return_value=Mock(spec=ConditionalContext))
         self.mock_factories.while_context = Mock(return_value=Mock(spec=WhileContext))
         self.mock_factories.scope = Mock()
+        self.mock_factories.str_resource = Mock(return_value=self.mock_string_resource)
 
         # Mock config
         self.mock_config = Mock(spec=Config)
@@ -46,10 +51,6 @@ class ScopeTestResources(unittest.TestCase):
         # Mock program
         self.mock_program = Mock()
         self.mock_program.merge = Mock()
-
-        # Mock resources
-        self.mock_string_resource = Mock(spec=StaticStringResource)
-        self.mock_abstract_resource = Mock(spec=AbstractResource)
 
         # Mock sequences
         self.mock_zcp_node = Mock(spec=ZCPNode)
@@ -151,12 +152,10 @@ class TestInternalUtils(ScopeTestResources):
         """Test that _fetch_resources converts Python objects to StaticStringResource."""
         scope = self.create_scope()
 
-        with patch('src.workflow_forge.flow_control.program.StaticStringResource') as mock_static:
-            mock_static.return_value = self.mock_string_resource
-            result = scope._fetch_resources({"string_val": "test_string"})
+        result = scope._fetch_resources({"string_val": "test_string"})
 
-            mock_static.assert_called_once_with("test_string")
-            self.assertEqual(result["string_val"], self.mock_string_resource)
+        self.mock_factories.str_resource.assert_called_once_with("test_string")
+        self.assertEqual(result["string_val"], self.mock_string_resource)
 
     def test_fetch_resources_warns_on_overwrite(self):
         """Test that _fetch_resources warns when overwriting existing resources."""
@@ -173,13 +172,18 @@ class TestInternalUtils(ScopeTestResources):
     def test_fetch_resources_handles_conversion_failure(self):
         """Test that _fetch_resources handles resource conversion failures."""
         scope = self.create_scope()
-        unconvertible = object()  # Can't be converted to string
 
-        with patch('builtins.str', side_effect=TypeError("Cannot convert")):
-            with self.assertRaises(ScopeException) as cm:
-                scope._fetch_resources({"bad": unconvertible})
+        # Create an object that raises TypeError when str() is called on it
+        class UnconvertibleObject:
+            def __repr__(self):
+                raise TypeError("Cannot convert to string")
 
-            self.assertIn("convert python resource to text resource", str(cm.exception))
+        unconvertible = UnconvertibleObject()
+
+        with self.assertRaises(ScopeException) as cm:
+            scope._fetch_resources({"bad": unconvertible})
+
+        self.assertIn("convert python resource to text resource", str(cm.exception))
 
     def test_load_sequence_finds_existing_sequence(self):
         """Test that _load_sequence finds and returns existing sequence."""

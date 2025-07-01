@@ -15,9 +15,9 @@ from unittest.mock import Mock
 from typing import Dict, Any
 
 # Import the modules under test
-from src.workflow_forge.zcp.nodes import ZCPNode, RZCPNode, GraphLoweringError
-from src.workflow_forge.resources import AbstractResource
-from src.workflow_forge.parsing.config_parsing import Config
+from workflow_forge.zcp.nodes import ZCPNode, RZCPNode, GraphLoweringError
+from workflow_forge.resources import AbstractResource
+from workflow_forge.frontend.parsing.config_parsing import Config
 
 
 class BaseZCPNodeTest(unittest.TestCase):

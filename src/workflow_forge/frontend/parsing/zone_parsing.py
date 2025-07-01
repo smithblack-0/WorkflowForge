@@ -12,11 +12,12 @@ This is the final stage of the UDPL parsing pipeline that handles:
 import re
 import string
 import warnings
-from typing import Dict, Any, List, Optional, Callable
-from ..zcp.nodes import ZCPNode
-from ..resources import AbstractResource
-from .config_parsing import Config
+from typing import Dict, Any, List, Callable
+
 from .block_parsing import ZoneInfo
+from .config_parsing import Config
+from workflow_forge.resources import AbstractResource
+from ...zcp.nodes import ZCPNode
 
 
 class ZoneParseError(Exception):

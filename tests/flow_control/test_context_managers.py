@@ -9,15 +9,14 @@ Tests cover:
 
 import unittest
 from unittest.mock import Mock
-from typing import Tuple, Optional
 
 # Import the modules under test
-from src.workflow_forge.flow_control.program import (
-    ConditionalContext, WhileContext, AbstractScopeContext
+from workflow_forge.frontend.flow_control.program import (
+    ConditionalContext, WhileContext
 )
-from src.workflow_forge.zcp.builder import GraphBuilderNode
-from src.workflow_forge.zcp.nodes import RZCPNode
-from src.workflow_forge.flow_control.program import Scope
+from workflow_forge.zcp.builder import GraphBuilderNode
+from workflow_forge.zcp.nodes import RZCPNode
+from workflow_forge.frontend.flow_control.program import Scope
 
 
 class BaseContextManagerTest(unittest.TestCase):

@@ -13,11 +13,11 @@ Tests cover:
 
 import unittest
 from unittest.mock import Mock
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 # Import the modules under test
-from src.workflow_forge.zcp.nodes import RZCPNode, SZCPNode, GraphLoweringError, GraphError
-from src.workflow_forge.resources import AbstractResource
+from workflow_forge.zcp.nodes import RZCPNode, SZCPNode, GraphLoweringError, GraphError
+from workflow_forge.resources import AbstractResource
 
 
 class BaseRZCPNodeTest(unittest.TestCase):

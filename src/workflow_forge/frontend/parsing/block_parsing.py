@@ -12,12 +12,13 @@ and orchestrate their processing. This includes:
 - Returning the head of the chain
 """
 
-from typing import Dict, Any, List, Callable
-from dataclasses import dataclass
 import re
 import warnings
-from ..zcp.nodes import ZCPNode
+from dataclasses import dataclass
+from typing import Dict, Any, List, Callable
+
 from .config_parsing import Config
+from ...zcp.nodes import ZCPNode
 
 
 class BlockParseError(Exception):

@@ -9,19 +9,19 @@ Tests cover:
 """
 
 import unittest
-from unittest.mock import Mock, patch
-from typing import Dict, List, Any, Callable
+from unittest.mock import Mock
+from typing import Dict, Any, Callable
 
 # Import the modules under test
-from src.workflow_forge.flow_control.program import (
-    Program, FCFactories, ProgramException, make_placeholder_node
+from workflow_forge.frontend.flow_control.program import (
+    Program, FCFactories, ProgramException
 )
-from src.workflow_forge.zcp.builder import GraphBuilderNode
-from src.workflow_forge.zcp.nodes import ZCPNode, RZCPNode
-from src.workflow_forge.zcp.workflow import Workflow
-from src.workflow_forge.parsing.config_parsing import Config
-from src.workflow_forge.resources import AbstractResource, StaticStringResource
-from src.workflow_forge.flow_control.program import Scope, ConditionalContext, WhileContext
+from workflow_forge.zcp.builder import GraphBuilderNode
+from workflow_forge.zcp.nodes import ZCPNode, RZCPNode
+from workflow_forge.zcp.workflow import Workflow
+from workflow_forge.frontend.parsing.config_parsing import Config
+from workflow_forge.resources import AbstractResource, StaticStringResource
+from workflow_forge.frontend.flow_control.program import Scope, ConditionalContext, WhileContext
 
 
 class ProgramTestResources(unittest.TestCase):
@@ -29,10 +29,17 @@ class ProgramTestResources(unittest.TestCase):
 
     def setUp(self):
         """Set up common test fixtures."""
+        # Mock resources and workflow (need to be defined first)
+        self.mock_resource = Mock(spec=AbstractResource)
+        self.mock_string_resource = Mock(spec=StaticStringResource)
+        self.mock_workflow = Mock(spec=Workflow)
+
         # Mock factories
         self.mock_factories = Mock(spec=FCFactories)
         self.mock_factories.graph_builder = Mock()
         self.mock_factories.scope = Mock()
+        self.mock_factories.str_resource = Mock(return_value=self.mock_string_resource)
+        self.mock_factories.workflow = Mock(return_value=self.mock_workflow)
 
         # Mock config
         self.mock_config = Mock(spec=Config)
@@ -46,8 +53,7 @@ class ProgramTestResources(unittest.TestCase):
             "another_sequence": Mock(spec=ZCPNode)
         }
 
-        # Mock resources
-        self.mock_resource = Mock(spec=AbstractResource)
+        # Test resources
         self.test_resources = {
             "test_resource": self.mock_resource
         }
@@ -61,13 +67,12 @@ class ProgramTestResources(unittest.TestCase):
         self.mock_factories.graph_builder.return_value = self.mock_builder
         self.mock_factories.scope.return_value = self.mock_scope
 
-        # Mock scope builder access
+        # Mock scope structure - Program expects scope to have .head
+        self.mock_scope.head = self.mock_head
         self.mock_scope.builder = self.mock_builder
-        self.mock_builder.head = self.mock_head
         self.mock_head.next_zone = Mock(spec=RZCPNode)
 
         # Mock workflow and SZCP
-        self.mock_workflow = Mock(spec=Workflow)
         self.mock_szcp = Mock()
         self.mock_head.next_zone.lower = Mock(return_value=self.mock_szcp)
 
@@ -99,16 +104,6 @@ class TestProgramConstruction(ProgramTestResources):
         program = self.create_program()
 
         self.assertIsInstance(program, Program)
-
-    def test_creates_mock_head_node_during_init(self):
-        """Test that Program creates a placeholder head node during initialization."""
-        with patch('src.workflow_forge.flow_control.program.make_placeholder_node') as mock_make_head:
-            mock_head = Mock(spec=RZCPNode)
-            mock_make_head.return_value = mock_head
-
-            program = self.create_program()
-
-            mock_make_head.assert_called_once()
 
     def test_creates_initial_graph_builder(self):
         """Test that Program creates initial GraphBuilder with control pattern."""
@@ -231,26 +226,20 @@ class TestCompilation(ProgramTestResources):
         program = self.create_program()
         factory = program.compile()
 
-        with patch('src.workflow_forge.flow_control.program.StaticStringResource') as mock_static:
-            mock_static_instance = Mock(spec=StaticStringResource)
-            mock_static.return_value = mock_static_instance
+        factory({"string_arg": "test_value"})
 
-            factory({"string_arg": "test_value"})
-
-            mock_static.assert_called_once_with("test_value")
+        self.mock_factories.str_resource.assert_called_with("test_value")
 
     def test_workflow_factory_calls_lower_with_converted_resources(self):
         """Test that workflow factory calls lower() with converted resources."""
         program = self.create_program()
         factory = program.compile()
 
-        with patch('src.workflow_forge.flow_control.program.StaticStringResource') as mock_static:
-            mock_static_instance = Mock(spec=StaticStringResource)
-            mock_static.return_value = mock_static_instance
+        factory({"test_arg": "value"})
 
-            factory({"test_arg": "value"})
-
-            self.mock_head.next_zone.lower.assert_called_once_with({"test_arg": mock_static_instance})
+        # Should call lower with the converted resources
+        expected_resources = {"test_arg": self.mock_string_resource}
+        self.mock_head.next_zone.lower.assert_called_once_with(expected_resources)
 
     def test_workflow_factory_creates_workflow_with_correct_parameters(self):
         """Test that workflow factory creates Workflow with correct parameters."""
@@ -258,39 +247,45 @@ class TestCompilation(ProgramTestResources):
         program.extract("test_data", ["Training"])
         factory = program.compile()
 
-        with patch('src.workflow_forge.flow_control.program.Workflow') as mock_workflow_class:
-            factory({})
+        result = factory({})
 
-            mock_workflow_class.assert_called_once_with(
-                config=self.mock_config,
-                nodes=self.mock_szcp,
-                extractions={"test_data": ["Training"]}
-            )
+        self.mock_factories.workflow.assert_called_once_with(
+            config=self.mock_config,
+            nodes=self.mock_szcp,
+            extractions={"test_data": ["Training"]}
+        )
+        self.assertEqual(result, self.mock_workflow)
 
     def test_convert_resources_handles_conversion_failure(self):
         """Test that _convert_resources handles conversion failures."""
         program = self.create_program()
 
-        # Create a mock that raises when str() is called on it
-        unconvertible = Mock()
-        unconvertible.__str__ = Mock(side_effect=TypeError("Cannot convert"))
+        # Create an object that raises TypeError when str() is called on it
+        class UnconvertibleObject:
+            def __str__(self):
+                raise TypeError("Cannot convert to string")
+
+        unconvertible = UnconvertibleObject()
 
         with self.assertRaises(ProgramException) as cm:
             program._convert_resources({"bad": unconvertible})
 
         self.assertIn("Conversion of python into resources failed", str(cm.exception))
+
     def test_convert_resources_converts_all_values_to_static_resources(self):
         """Test that _convert_resources converts all values to StaticStringResource."""
         program = self.create_program()
 
-        with patch('src.workflow_forge.flow_control.program.StaticStringResource') as mock_static:
-            mock_static.return_value = Mock(spec=StaticStringResource)
+        result = program._convert_resources({"key1": "value1", "key2": 123})
 
-            result = program._convert_resources({"key1": "value1", "key2": 123})
+        # Should call str_resource factory for each conversion
+        self.assertEqual(self.mock_factories.str_resource.call_count, 2)
+        self.mock_factories.str_resource.assert_any_call("value1")
+        self.mock_factories.str_resource.assert_any_call("123")
 
-            self.assertEqual(mock_static.call_count, 2)
-            mock_static.assert_any_call("value1")
-            mock_static.assert_any_call("123")
+        # Should return dict with converted resources
+        expected_result = {"key1": self.mock_string_resource, "key2": self.mock_string_resource}
+        self.assertEqual(result, expected_result)
 
 
 class TestScopePassthroughs(ProgramTestResources):
@@ -352,7 +347,6 @@ class TestScopePassthroughs(ProgramTestResources):
         program.feed("test_sequence")
 
         self.mock_scope.feed.assert_called_once_with("test_sequence")
-
 
     def test_passthrough_methods_forward_extra_resources(self):
         """Test that passthrough methods forward extra resource arguments."""

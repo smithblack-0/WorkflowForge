@@ -12,9 +12,9 @@ from unittest.mock import Mock
 from typing import Dict, Any, Optional, List
 
 # Import the modules under test (adjust imports based on actual project structure)
-from src.workflow_forge.parsing.sequence_parsing import parse_sequences, SequenceParseError
+from src.workflow_forge.frontend.parsing.sequence_parsing import parse_sequences, SequenceParseError
 from src.workflow_forge.zcp.nodes import ZCPNode
-from src.workflow_forge.parsing.config_parsing import Config
+from src.workflow_forge.frontend.parsing.config_parsing import Config
 
 
 class BaseSequenceParserTest(unittest.TestCase):

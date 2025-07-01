@@ -14,14 +14,14 @@ from unittest.mock import Mock
 from typing import Dict, Any, Optional
 
 # Import the modules under test
-from src.workflow_forge.parsing.zone_parsing import (
+from workflow_forge.frontend.parsing import (
     parse_zone, validate_flow_control_safety, extract_placeholders,
     build_resource_specs, create_construction_callback, ZoneParseError
 )
-from src.workflow_forge.parsing.config_parsing import Config
-from src.workflow_forge.parsing.block_parsing import ZoneInfo
-from src.workflow_forge.zcp.nodes import ZCPNode
-from src.workflow_forge.resources import AbstractResource
+from workflow_forge.frontend.parsing.config_parsing import Config
+from workflow_forge.frontend.parsing.block_parsing import ZoneInfo
+from workflow_forge.zcp.nodes import ZCPNode
+from workflow_forge.resources import AbstractResource
 
 
 class BaseZoneParserTest(unittest.TestCase):

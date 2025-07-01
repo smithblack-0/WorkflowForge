@@ -9,14 +9,13 @@ Tests cover:
 """
 
 import unittest
-from unittest.mock import Mock
 from typing import Dict, List
 
 # Import the modules under test
-from src.workflow_forge.flow_control.program import new_program, Program
-from src.workflow_forge.zcp.nodes import ZCPNode
-from src.workflow_forge.resources import AbstractResource
-from src.workflow_forge.parsing.config_parsing import Config
+from workflow_forge.frontend.flow_control.program import new_program, Program
+from workflow_forge.zcp.nodes import ZCPNode
+from workflow_forge.resources import AbstractResource
+from workflow_forge.frontend.parsing.config_parsing import Config
 
 # Set to True to enable visualization of workflow graphs during testing
 SHOW_VISUALIZATIONS = True
@@ -117,7 +116,7 @@ class IntegrationTestResources(unittest.TestCase):
         Returns:
             Dictionary of resource name to real AbstractResource
         """
-        from src.workflow_forge.resources import StaticStringResource
+        from workflow_forge.resources import StaticStringResource
 
         if resource_names is None:
             resource_names = ["constitution", "feedback", "examples", "context"]

@@ -10,8 +10,8 @@ from unittest.mock import Mock
 from typing import List
 
 # Import the modules under test
-from src.workflow_forge.zcp.builder import GraphBuilderNode, GraphBuilderException
-from src.workflow_forge.zcp.nodes import RZCPNode
+from workflow_forge.zcp.builder import GraphBuilderNode, GraphBuilderException
+from workflow_forge.zcp.nodes import RZCPNode
 
 
 class TestGraphBuilderNode(unittest.TestCase):

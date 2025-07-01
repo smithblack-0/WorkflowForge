@@ -12,9 +12,10 @@ The sequence parser:
 5. Returns a dictionary mapping sequence names to zcp chain heads
 """
 
-from typing import Dict, List, Any, Callable
-from ..zcp.nodes import ZCPNode
+from typing import Dict, Any, Callable
+
 from .config_parsing import Config
+from ...zcp.nodes import ZCPNode
 
 
 class SequenceParseError(Exception):

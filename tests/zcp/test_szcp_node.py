@@ -18,9 +18,9 @@ from unittest.mock import Mock
 from typing import Dict, Any
 
 # Import the modules under test
-from src.workflow_forge.zcp.nodes import SZCPNode, LZCPNode, GraphLoweringError
-from src.workflow_forge.zcp.tag_converter import TagConverter
-from src.workflow_forge.tokenizer_interface import TokenizerInterface
+from workflow_forge.zcp.nodes import SZCPNode, LZCPNode, GraphLoweringError
+from workflow_forge.zcp.tag_converter import TagConverter
+from workflow_forge.tokenizer_interface import TokenizerInterface
 
 
 class BaseSZCPNodeTest(unittest.TestCase):

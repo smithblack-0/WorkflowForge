@@ -133,7 +133,7 @@ Inline another program's workflow into the current program.
 
 ```python
 # Create subroutine
-subroutine = forge.new_program(sequences, resources, config, tokenizer)
+subroutine = forge.new_program(sequences, resources, config)
 with subroutine.loop("loop", min=3, max=6) as loop_scope:
     loop_scope.run("think")
 

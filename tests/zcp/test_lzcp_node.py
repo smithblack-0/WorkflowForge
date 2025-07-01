@@ -16,7 +16,7 @@ from unittest.mock import Mock
 from typing import Dict, Any, Optional, Tuple
 
 # Import the modules under test
-from src.workflow_forge.zcp.nodes import LZCPNode, GraphError
+from workflow_forge.zcp.nodes import LZCPNode, GraphError
 
 
 class BaseLZCPNodeTest(unittest.TestCase):

@@ -11,14 +11,17 @@ zcp supports Directed Cyclic IO Graphs (DCG-IO), which are directed graphs that:
 - Guarantee all vertices are reachable from source and can reach sink
 - Maintain computational tractability for workflow analysis
 """
-import numpy as np
 import textwrap
 from dataclasses import dataclass
 from typing import Optional, List, Callable, Dict, Any, Tuple
-from src.workflow_forge.zcp.tag_converter import TagConverter
+
+import numpy as np
+
+from workflow_forge.zcp.tag_converter import TagConverter
+from ..frontend.parsing.config_parsing import Config
+from workflow_forge.resources import AbstractResource
 from ..tokenizer_interface import TokenizerInterface
-from ..resources import AbstractResource
-from ..parsing.config_parsing import Config
+
 try:
     # Most users do not need this. But if you are
     # trying to visualize the nodes for debugging your

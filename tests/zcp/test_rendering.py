@@ -6,7 +6,7 @@ Run these to see actual graphs and inspect them visually.
 """
 
 import unittest
-from src.workflow_forge.zcp.rendering import GraphNode, GraphData, create_plotly_graph
+from workflow_forge.zcp.rendering import GraphNode, GraphData, create_plotly_graph
 
 # Set to True to display graphs during testing
 SHOW_GRAPHS = True

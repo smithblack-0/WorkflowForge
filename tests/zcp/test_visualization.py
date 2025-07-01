@@ -18,7 +18,7 @@ def create_test_szcp_workflow():
     - Validation loop
     - Final output chain
     """
-    from src.workflow_forge.zcp.nodes import SZCPNode
+    from workflow_forge.zcp.nodes import SZCPNode
 
     nodes = {}  # Will store all nodes by their logical name
 

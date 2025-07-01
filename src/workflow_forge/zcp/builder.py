@@ -2,9 +2,10 @@
 The builder is responsible for committing and monitoring the right
 build actions given the current state. The
 """
-import numpy as np
 from typing import Optional, List, Tuple
-from src.workflow_forge.zcp.nodes import RZCPNode
+
+from .nodes import RZCPNode
+
 
 class GraphBuilderException(Exception):
     """Exception raised when graph building fails"""

@@ -13,14 +13,13 @@ import msgpack
 import base64
 import numpy as np
 from unittest.mock import Mock
-from typing import Dict, List, Callable
 
 # Import the modules under test
-from src.workflow_forge.zcp.workflow import Workflow, LoweredWorkflow, WFFactories
-from src.workflow_forge.zcp.nodes import SZCPNode, LZCPNode
-from src.workflow_forge.zcp.tag_converter import TagConverter
-from src.workflow_forge.parsing.config_parsing import Config
-from src.workflow_forge.tokenizer_interface import TokenizerInterface
+from workflow_forge.zcp.workflow import Workflow, LoweredWorkflow, WFFactories
+from workflow_forge.zcp.nodes import SZCPNode, LZCPNode
+from workflow_forge.zcp.tag_converter import TagConverter
+from workflow_forge.frontend.parsing.config_parsing import Config
+from workflow_forge.tokenizer_interface import TokenizerInterface
 
 
 class BaseWorkflowTest(unittest.TestCase):

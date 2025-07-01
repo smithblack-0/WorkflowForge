@@ -23,9 +23,9 @@ The frontend system has three primary goals:
 
 Going forward it is important to keep the following terms in mind:
 
-- **Zone**: A region of tokens delimited by two special text patterns defined in the config (e.g., a [Prompt] to [Answer] span). Zones are the unit of tagging and extraction. Every block is made up of one or more zones.
+- **Zone**: A region of tokens delimited by two special text patterns defined in the config (e.g., a [Prompt] to [Answer] span). Zones are the unit of tagging and extraction. Every block is made up of one or more zones. Note that the internal parser actually adds one more zone, but users should not need to worry about that.
 
-- **Zone Edge Pattern**: Special text patterns such as [Prompt] or [Answer] used to indicate the edge of a zone. These are not guaranteed to be single tokens.
+- **Zone Pattern**: Special text patterns such as [Prompt] or [Answer] used to indicate the edge of a zone. These are not guaranteed to be single tokens.
 
 - **Block**: A full prompt sequence consisting of one or more adjacent zones (e.g., [Prompt]...[Answer]...[EOS]). All zones in a block are resolved before the block completes. The model may take over any time all original prompt text is exhausted, at which point it completes the remaining zones.
 
@@ -72,7 +72,7 @@ Once the UDPL toml has been defined, the config and sequences can be produced us
 
 Flow control was judged to be much easier to program when you separate what you need to do with how to say it. As such, SFCS invokes from a parsed UDPL specification in terms of the sequences to perform various actions. The core idea is defining a 'program' which, using context managers, can add on natural additional parts to your flow control in a very pythonic manner. Under the hood, you are building a control flow graph that is later lowered.
 
-**Model-Commanded Flow Control**: Unlike traditional programming, the language model decides when to branch or loop by emitting control tokens. Your UDPL prompts must instruct the model when to emit these tokens.
+**Model-Commanded Flow Control**: Unlike traditional programming, the language model decides when to branch or loop by emitting control patterns. Your UDPL prompts must instruct the model when to emit these patterns.
 
 **Context-Based Building**: Flow control uses Python context managers (`with program.loop()`) that create scopes for building workflow graphs.
 
@@ -138,6 +138,7 @@ the prior response: {details}
 Okay, I should begin by thinking through the new point, then
 consider if I should revise my answer. Then I give my final 
 answer.
+[EOS]
 """
 tags= [[], []]
 repeats = 3
