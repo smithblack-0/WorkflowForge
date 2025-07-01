@@ -67,7 +67,7 @@ onto the resource you intend to use to resolve it. For instance, the below dicti
 import workflow_forge as forge
 
 resources = {"statement_a" : forge.resources.StaticStringResource("This is statement a"),
-             "statemement_b" : forge.resources.StaticStringResource("This is statement b")
+             "statement_b" : forge.resources.StaticStringResource("This is statement b")
              }
 ```
 
@@ -208,7 +208,7 @@ class MyCustomResource(AbstractResource):
     list of strings.
     """
 
-    def init(self, string_list: List[str]):
+    def __init__(self, string_list: List[str]):
         assert len(string_list) > 0
         self.string_list = string_list
 
