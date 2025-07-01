@@ -65,8 +65,6 @@ def make_default_factories()->FCFactories:
         graph_builder=GraphBuilderNode,
         specification=Workflow,
     )
-factories = make_default_factories()
-
 
 ### Builder Contexts
 #
@@ -434,7 +432,7 @@ class Program:
         initial_builder = self.factories.graph_builder(self.config.control_pattern,
                                                        [self.head])
 
-        self.scope = Scope(
+        self.scope = self.factories.scope(
             factories=self.factories,
             config=self.config,
             builder=initial_builder,
@@ -489,6 +487,7 @@ class Program:
                 resource = str(resource)
                 resource = StaticStringResource(resource)
                 output[name] = resource
+            return output
         except Exception as e:
             msg = f"""
             Conversion of python into resources failed
@@ -507,12 +506,14 @@ class Program:
         :return:
         """
         # Get the final RZCP graph from the scope's builder
-        final_graph = self.scope.builder.head.next_zone
+        final_graph = self.scope.head.next_zone
         if final_graph is None:
             raise ProgramException("Cannot compile empty program - no sequences were added")
 
         # Define and return the workflow factory
-        def workflow_factory(argument_resources: Dict[str, Any])->Workflow:
+        def workflow_factory(argument_resources: Optional[Dict[str, Any]] = None)->Workflow:
+            if argument_resources is None:
+                argument_resources = {}
             argument_resources = self._convert_resources(argument_resources)
             szcp = final_graph.lower(argument_resources)
             return Workflow(
@@ -579,17 +580,17 @@ class Program:
 
     def capture(self,
                 sequence_name: str,
-                tool: Tool,
+                tool_name: str,
                 **extra_resources: Dict[str, Any]
                 ):
         """
         Sets up last zone in sequence as a capture zone, in
         which all contents will be stored and fed to tool
         :param sequence_name: Sequence to load and add.
-        :param tool: Tool to call back into
+        :param tool_name: Tool to call back into
         :param extra_resources: Any extra resources sequence should be setup with
         """
-        return self.scope.capture(sequence_name, tool, **extra_resources)
+        return self.scope.capture(sequence_name, tool_name, **extra_resources)
 
     def feed(self,
              sequence_name: str,
@@ -603,10 +604,22 @@ class Program:
         """
         return self.scope.feed(sequence_name, **extra_resources)
 
+def new_program(
+        sequences: Dict[str, ZCPNode],
+        resources: Dict[str, AbstractResource],
+        config: Config,
+    )->Program:
+    """
+    Create a new program to make a workflow
+    with.
 
-
-
-
+    :param sequences: The sequences from UDPL parsing
+    :param resources: Any resources we wish to use
+    :param config: The config
+    :return: The program
+    """
+    factories = make_default_factories()
+    return Program(factories, sequences, resources, config)
 
 
 

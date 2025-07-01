@@ -142,7 +142,8 @@ class ZCPNode:
         def sample(dynamic_resources: Dict[str, AbstractResource]) -> str:
             """
             Main sampling function, draws from the resources, fills
-            in placeholders, gets text, returns the resolved string.
+            in placeholders, gets text, returns the resolved string.il
+
             Args:
                 dynamic_resources: Runtime resources dictionary.
             Returns:
@@ -321,14 +322,26 @@ class RZCPNode:
 
     def get_last_node(self) -> 'RZCPNode':
         """
-        Get the last node of the chain by following the linked list structure.
-
-        Returns:
-            The last node of the chain we could find
+        Get the last node of the chain, handling cycles in loop structures.
         """
+        visited = set()
         node = self
-        while node.next_zone is not None:
+
+        while node is not None:
+            # If we've been here before, switch to jump branch
+            if id(node) in visited:
+                node = node.jump_zone  # Switch to jump branch and continue
+                continue
+
+            visited.add(id(node))
+
+            # If this is truly terminal, we're done
+            if node.next_zone is None:
+                return node
+
+            # Continue following nominal path
             node = node.next_zone
+
         return node
 
     def _lower_node(self,
@@ -491,13 +504,29 @@ class SZCPNode:
     def get_last_node(self) -> 'SZCPNode':
         """
         Get the last node of the chain by following the linked list structure.
+        Handles cycles in loop structures by taking jump branches.
 
         Returns:
-            The last node in the next_zone chain
+            The last node in the next_zone chain or jump target when cycles detected
         """
+        visited = set()
         node = self
-        while node.next_zone is not None:
+
+        while node is not None:
+            # If we've been here before, take jump instead of next
+            if id(node) in visited:
+                node = node.jump_zone
+                continue  # Restart loop to properly handle the jump target
+
+            visited.add(id(node))
+
+            # If terminal, we're done
+            if node.next_zone is None:
+                return node
+
+            # Otherwise keep going
             node = node.next_zone
+
         return node
 
     def _lower_node(self,
@@ -804,7 +833,7 @@ class SZCPNode:
 
         # Apply Sugiyama hierarchical layout (left-to-right orientation)
         ig_graph = ig.Graph.from_networkx(G)
-        layout = ig_graph.layout("sugiyama")
+        layout = ig_graph.layout("sugiyama", maxiter=1000)
 
         # Map layout positions back to original NetworkX node IDs
         # The layout includes positions for both original nodes and dummy nodes,
@@ -998,15 +1027,31 @@ class LZCPNode:
 
         return [name for name, active in zip(tag_names, self.tags) if active]
 
-    def get_last_node(self)->'LZCPNode':
+    def get_last_node(self) -> 'LZCPNode':
         """
-        Get the last node of the chain by just following
-        the linked list structure
-        :return: The last node of the chain we could find
+        Get the last node of the chain by following the linked list structure.
+        Handles cycles in loop structures by taking jump branches.
+
+        :return: The last node of the chain or jump target when cycles detected
         """
+        visited = set()
         node = self
-        while node.next_zone is not None:
+
+        while node is not None:
+            # If we've been here before, take jump instead of next
+            if id(node) in visited:
+                node = node.jump_zone
+                continue  # Restart loop to properly handle the jump target
+
+            visited.add(id(node))
+
+            # If terminal, we're done
+            if node.next_zone is None:
+                return node
+
+            # Otherwise keep going
             node = node.next_zone
+
         return node
 
     def __hash__(self):

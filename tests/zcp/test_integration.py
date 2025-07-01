@@ -1068,7 +1068,7 @@ class TestWorkflowIntegration(BaseIntegrationTest):
 
             # Verify: File was created
             self.assertTrue(os.path.exists(html_file_path))
-
+        workflow.visualize()
 
 if __name__ == "__main__":
     unittest.main()

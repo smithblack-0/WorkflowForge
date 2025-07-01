@@ -298,6 +298,30 @@ class TestRZCPNodeLinkedList(BaseRZCPNodeTest):
         self.assertEqual(node2.get_last_node(), node3)
         self.assertEqual(node3.get_last_node(), node3)
 
+    def test_get_last_node_with_loop_cycle(self):
+        """Test get_last_node handles loop cycles by taking jump branch."""
+        # Create a 4-node structure: entry -> loop_start -> loop_body -> exit
+        entry_node = self.create_node(block=0)
+        loop_start = self.create_node(block=1)
+        loop_body = self.create_node(block=2)
+        exit_node = self.create_node(block=3)
+
+        # Create linear chain: entry -> loop_start -> loop_body -> exit
+        entry_node.next_zone = loop_start
+        loop_start.next_zone = loop_body
+        loop_body.next_zone = exit_node
+
+        # Create loop: loop_body loops back to loop_start (nominal path)
+        # but loop_start has jump to exit_node (escape path)
+        loop_body.next_zone = loop_start  # Creates the cycle
+        loop_start.jump_zone = exit_node  # Escape route
+
+        # get_last_node should detect the cycle at loop_start and take jump to exit_node
+        self.assertEqual(entry_node.get_last_node(), exit_node)
+
+        # exit_node should return itself (terminal)
+        self.assertEqual(exit_node.get_last_node(), exit_node)
+
     def test_attach_single_source(self):
         """Test attach method connects source node to this node."""
         target = self.create_node()
