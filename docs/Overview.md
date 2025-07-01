@@ -1,13 +1,16 @@
 # Overview
 
- Workflow Forge (WF) is a system consisting of a prompting frontend and configuration language, a flow control language, an IR compiler, and a final backend consisting of a FSM designed to operate with flow control on the GPU.It compiles an automatic structure to run a process using flow control on a single model. It runs without exiting to python for flow control in most situations.
+ Workflow Forge (WF) is a system designed to make designing and executing complex workflows with many stages and fed prompts straightforward, easy, and blindingly fast. It's primary benefit is **Mass Sampling** - one configured workflow can be dispatched and drawn from 500 times with just as much speed as drawing one sample, so long as the batch width does not overwhelm gpu parallelism. Additionally, each workflow can include flow control, the model can make independent decisions along the way, and remote execution of workflows is supported.
 
 # Project introduction
 ## What does this do?
 
 Capabilities explicitly supported by the project are:
 
-* Stupid straightforward prompting configuration at all levels of complexity from beginner to expert.
+* Server/Client split. The client may produce workflows and dispatch them to a server, which then serializes and run it. 
+
+
+* Straightforward prompting configuration at all levels of complexity from beginner to expert.
 * Batched generation with flow control and different decisions under the Single Workflow, Multiple Streams (SWMS) principle. Muliple Workflow, Multiple Streams is not currently supported. This is explicitly designed for mass generation of synthetic training data, the original use case.
 * Python interaction with tool usage. This, however, blocks batched execution so run it in your own thread and mock tool usage during training. This could be extended in future versions to eject and move onto another batch while the tool resolves.
 * Automatic extracting of synthetic data or audit data by generative zones post-generation.
@@ -55,13 +58,8 @@ It is worth checking their respective files in the documentation if you wish to 
 
 It should be emphasized, first, that as far as the user is concerned they never have to see ZCP.
 
-The Zone Control Protocol is an intermediate stage that is
-at the core of the SFCS system. The smallest unit of 
-instruction is the Zone. A Zone has an optional sequence
-of tokens to feed while teacher forcing, a token to listen
-for to move onto the next zone, and sometimes a token to listen
-for to engage 'jump' flow control logic, along with some
-other details. 
+The Zone Control Protocol is an intermediate stage that is at the core of the SFCS system. The smallest unit of instruction is the Zone. A Zone has an optional sequence of tokens to feed while teacher forcing, a conceptual token to listen for to move onto the next zone, and sometimes a conceptual token to listen for to engage 'jump' flow control logic, along with some
+other details. We use the word conceptual as we prevent the need to extend the tokenizer by actually matching what the sequence tokenizes into; this, however, is not a userspace detail. Anytime hereafter tokens are referred to, they are conceptual.
 
 The Zone Control Protocol is a graph of these zones that 
 walks us through the flow control, as originally defined
@@ -328,34 +326,34 @@ sequences, config = forge.parse_udpl_file("prompts.toml")
 # Tokenizer setup
 
 tokenizer = make_tokenizer()
-tokenizer = add_special_tokens(tokenizer, config.special_tokens)
+tokenizer = add_special_tokens(tokenizer, config.special_patterns)
 
 # Programming the actual control 
 
 program = forge.new_program(sequences, resources, config, tokenizer)
-program.run(sequence="setup") # This runs the sequence called setup
-with program.while(sequence="loop", min=2, max=6) as loop:
-   # Loop, recall, can sometimes emit a 
-   # [Jump] token when run. This brings us 
-   # OUT of the loop. Control sequences
-   # should have prompting telling the model
-   # when to emit the control token.
-   loop.run("solving")
+program.run(sequence="setup")  # This runs the sequence called setup
+with program.while (sequence="loop", min=2, max=6) as loop:
+    # Loop, recall, can sometimes emit a 
+    # [Jump] token when run. This brings us 
+    # OUT of the loop. Control sequences
+    # should have prompting telling the model
+    # when to emit the control token.
+    loop.run("solving")
 program.run("concluding")
 
 # Programming the tag extraction to automatically
 # extract relevant zones.
 
-program.extract(name="good_synthetic_training_data", 
-                tags = ["Training", "Correct"]
+program.extract(name="good_synthetic_training_data",
+                tags=["Training", "Correct"]
                 )
 program.extract(name="bad_synthetic_training_data",
-                tags = ["Training", "Incorrect"])
+                tags=["Training", "Incorrect"])
 program.extract(name="feedback",
-                tags = ["Feedback"])
+                tags=["Feedback"])
 
 # Compile the program. 
-controller_factory = program.compile(backend="default")
+workflow_factory = program.compile(backend="default")
 ```
 
 ### Deployment by Backend

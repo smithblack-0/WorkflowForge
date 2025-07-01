@@ -12,18 +12,16 @@ Tests cover:
 
 import unittest
 import tempfile
-import os
 from pathlib import Path
 from unittest.mock import patch, Mock, mock_open
-from typing import Dict, Any
 
 # Import the modules under test
-from src.workflow_forge.parsing.main_parser import (
+from workflow_forge.frontend.parsing.main_parser import (
     parse_udpl_file, parse_udpl_folder, _parse, _check_for_collisions,
     _create_block_parser, UDPLParseError
 )
-from src.workflow_forge.parsing.config_parsing import Config
-from src.workflow_forge.ZCP.nodes import ZCPNode
+from workflow_forge.frontend.parsing.config_parsing import Config
+from workflow_forge.zcp.nodes import ZCPNode
 
 
 class TestFileParser(unittest.TestCase):

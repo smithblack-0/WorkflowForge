@@ -2,35 +2,96 @@
 Integration tests for UDPL Parser
 
 These tests use real UDPL examples from the documentation to verify
-the entire parsing pipeline works correctly end-to-end from TOML → ZCP nodes.
+the entire parsing pipeline works correctly end-to-end from TOML → zcp nodes.
 """
 
 import unittest
 import tempfile
+import shutil
 from pathlib import Path
 from unittest.mock import Mock
 
 # Import the modules under test
-from src.workflow_forge.parsing.main_parser import parse_udpl_file, parse_udpl_folder
-from src.workflow_forge.parsing.config_parsing import Config
-from src.workflow_forge.ZCP.nodes import ZCPNode
-from src.workflow_forge.resources import AbstractResource
+from workflow_forge.frontend.parsing.main_parser import parse_udpl_file, parse_udpl_folder
+from workflow_forge.frontend.parsing.config_parsing import Config
+from workflow_forge.zcp.nodes import ZCPNode
+from workflow_forge.resources import AbstractResource
 
 
-class TestPhilosophicalSelfPlayExample(unittest.TestCase):
+class BaseIntegrationTest(unittest.TestCase):
+    """Base class with common setup and helper methods for integration tests."""
+
+    def create_temp_file(self, content: str, suffix: str = '.toml') -> str:
+        """
+        Create a temporary file with given content.
+
+        Args:
+            content: Content to write to the file
+            suffix: File suffix (default .toml)
+
+        Returns:
+            Path to the temporary file
+        """
+        with tempfile.NamedTemporaryFile(mode='w', suffix=suffix, delete=False) as f:
+            f.write(content)
+            return f.name
+
+    def cleanup_temp_file(self, path: str):
+        """Clean up a temporary file."""
+        Path(path).unlink()
+
+    def create_temp_dir(self) -> Path:
+        """Create a temporary directory."""
+        return Path(tempfile.mkdtemp())
+
+    def cleanup_temp_dir(self, path: Path):
+        """Clean up a temporary directory."""
+        shutil.rmtree(path)
+
+    def collect_sequence_nodes(self, head_node: ZCPNode) -> list:
+        """
+        Collect all nodes in a sequence chain.
+
+        Args:
+            head_node: First node in the sequence
+
+        Returns:
+            List of all nodes in the sequence
+        """
+        nodes = []
+        current = head_node
+        while current is not None:
+            nodes.append(current)
+            current = current.next_zone
+        return nodes
+
+    def find_nodes_with_text(self, nodes: list, search_text: str) -> list:
+        """Find nodes containing specific text."""
+        return [node for node in nodes if search_text in node.raw_text]
+
+    def find_nodes_with_tags(self, nodes: list, tag: str) -> list:
+        """Find nodes containing specific tag."""
+        return [node for node in nodes if tag in node.tags]
+
+    def get_base_config_content(self) -> str:
+        """Get base config content for TOML files."""
+        return '''[config]
+zone_patterns = ["[Prompt]", "[Answer]", "[EOS]"]
+required_patterns = ["[Prompt]", "[Answer]"]
+valid_tags = ["Training", "Correct", "Incorrect", "Feedback"]
+default_max_token_length = 20000
+sequences = ["setup", "loop", "solving", "concluding"]
+control_pattern = "[Jump]"
+escape_patterns = ["[Escape]", "[EndEscape]"]
+tools = []'''
+
+
+class TestPhilosophicalSelfPlayExample(BaseIntegrationTest):
     """Test parsing the main philosophical self-play example from documentation."""
 
     def setUp(self):
         """Set up the philosophical self-play TOML content."""
-        self.philosophical_toml = '''
-[config]
-zone_tokens = ["[Prompt]", "[Answer]", "[EOS]"]
-required_tokens = ["[Prompt]", "[Answer]"]
-valid_tags = ["Training", "Correct", "Incorrect", "Feedback"]
-default_max_token_length = 20000
-sequences = ["setup", "loop", "solving", "concluding"]
-control_token = "[Jump]"
-escape_token = "[Escape]"
+        self.philosophical_toml = self.get_base_config_content() + '''
 
 # This will setup the scenario.
 # Notice the tagging on the second
@@ -59,7 +120,7 @@ tags = [[], ["Training"]]
 text = """
 [Prompt]
 You are in flow control right now. If you are satisfied
-with your current answer emit [Escape] "[Jump]". Otherwise
+with your current answer emit [Escape] "[Jump]" [EndEscape]. Otherwise
 answer "try again". If this is your first time seeing this,
 just say "proceed". Repeat at least {min} times and at most
 {max} times.
@@ -69,10 +130,10 @@ tags = [[],[]]
 
 [loop.min]
 name = "min_control_resource"
-type = "control"
+type = "custom"
 [loop.max]
 name = "max_control_resource"
-type = "control"
+type = "custom"
 
 # This will be repeated again and again as needed.
 
@@ -128,34 +189,29 @@ tags = [[],["Feedback"]]
 
     def test_config_parsing(self):
         """Test that config is parsed correctly."""
-        # Create temp file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False) as f:
-            f.write(self.philosophical_toml)
-            temp_path = f.name
+        temp_path = self.create_temp_file(self.philosophical_toml)
 
         try:
             sequences, config = parse_udpl_file(temp_path)
 
             # Verify config structure
             self.assertIsInstance(config, Config)
-            self.assertEqual(config.zone_tokens, ["[Prompt]", "[Answer]", "[EOS]"])
-            self.assertEqual(config.required_tokens, ["[Prompt]", "[Answer]"])
+            self.assertEqual(config.zone_patterns, ["[Prompt]", "[Answer]", "[EOS]"])
+            self.assertEqual(config.required_patterns, ["[Prompt]", "[Answer]"])
             self.assertEqual(config.valid_tags, ["Training", "Correct", "Incorrect", "Feedback"])
             self.assertEqual(config.default_max_token_length, 20000)
             self.assertEqual(config.sequences, ["setup", "loop", "solving", "concluding"])
-            self.assertEqual(config.control_token, "[Jump]")
-            self.assertEqual(config.escape_token, "[Escape]")
-            self.assertEqual(config.num_zones_per_block, 2)  # 3 zone tokens - 1
+            self.assertEqual(config.control_pattern, "[Jump]")
+            self.assertEqual(config.escape_patterns, ("[Escape]", "[EndEscape]"))
+            self.assertEqual(config.tools, [])
+            self.assertEqual(config.num_zones_per_block, 2)  # 3 zone patterns - 1
 
         finally:
-            Path(temp_path).unlink()
+            self.cleanup_temp_file(temp_path)
 
     def test_sequence_structure(self):
         """Test that all sequences are parsed and have correct structure."""
-        # Create temp file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False) as f:
-            f.write(self.philosophical_toml)
-            temp_path = f.name
+        temp_path = self.create_temp_file(self.philosophical_toml)
 
         try:
             sequences, config = parse_udpl_file(temp_path)
@@ -168,38 +224,31 @@ tags = [[],["Feedback"]]
                 self.assertIsInstance(seq_head, ZCPNode)
 
         finally:
-            Path(temp_path).unlink()
+            self.cleanup_temp_file(temp_path)
 
     def test_setup_sequence_structure(self):
         """Test setup sequence has correct zone structure and content."""
-        # Create temp file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False) as f:
-            f.write(self.philosophical_toml)
-            temp_path = f.name
+        temp_path = self.create_temp_file(self.philosophical_toml)
 
         try:
             sequences, config = parse_udpl_file(temp_path)
 
             # Walk through setup sequence chain
-            setup_nodes = []
-            current = sequences["setup"]
-            while current is not None:
-                setup_nodes.append(current)
-                current = current.next_zone
+            setup_nodes = self.collect_sequence_nodes(sequences["setup"])
 
             # Should have 6 zones total (2 blocks × 3 zones per block)
             self.assertEqual(len(setup_nodes), 6)
 
             # Check first block zones
             # Zone 0: Initial trigger zone
-            self.assertEqual(setup_nodes[0].zone_advance_token, "[Prompt]")
+            self.assertEqual(setup_nodes[0].zone_advance_str, "[Prompt]")
             self.assertEqual(setup_nodes[0].raw_text, "[Prompt]")
             self.assertEqual(setup_nodes[0].tags, [])
             self.assertEqual(setup_nodes[0].sequence, "setup")
             self.assertEqual(setup_nodes[0].block, 0)
 
             # Zone 1: First block prompt→answer
-            self.assertEqual(setup_nodes[1].zone_advance_token, "[Answer]")
+            self.assertEqual(setup_nodes[1].zone_advance_str, "[Answer]")
             self.assertIn("Think of an interesting philosophical scenario", setup_nodes[1].raw_text)
             self.assertIn("[Answer]", setup_nodes[1].raw_text)
             self.assertEqual(setup_nodes[1].tags, [])
@@ -207,61 +256,53 @@ tags = [[],["Feedback"]]
             self.assertEqual(setup_nodes[1].block, 0)
 
             # Zone 2: First block answer→eos
-            self.assertEqual(setup_nodes[2].zone_advance_token, "[EOS]")
-            self.assertEqual(setup_nodes[2].raw_text, "\n")
+            self.assertEqual(setup_nodes[2].zone_advance_str, "[EOS]")
             self.assertEqual(setup_nodes[2].tags, ["Training"])
 
             # Zone 3: Second block initial
-            self.assertEqual(setup_nodes[3].zone_advance_token, "[Prompt]")
+            self.assertEqual(setup_nodes[3].zone_advance_str, "[Prompt]")
             self.assertEqual(setup_nodes[3].raw_text, "[Prompt]")
             self.assertEqual(setup_nodes[3].tags, [])
             self.assertEqual(setup_nodes[3].sequence, "setup")
             self.assertEqual(setup_nodes[3].block, 1)
 
             # Zone 4: Second block prompt→answer
-            self.assertEqual(setup_nodes[4].zone_advance_token, "[Answer]")
+            self.assertEqual(setup_nodes[4].zone_advance_str, "[Answer]")
             self.assertIn("Clearly state the philosophical scenario", setup_nodes[4].raw_text)
             self.assertEqual(setup_nodes[4].tags, [])
 
             # Zone 5: Second block answer→eos
-            self.assertEqual(setup_nodes[5].zone_advance_token, "[EOS]")
+            self.assertEqual(setup_nodes[5].zone_advance_str, "[EOS]")
             self.assertEqual(setup_nodes[5].tags, ["Training"])
 
         finally:
-            Path(temp_path).unlink()
+            self.cleanup_temp_file(temp_path)
 
     def test_loop_sequence_resources(self):
         """Test loop sequence has correct resource specifications."""
-        # Create temp file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False) as f:
-            f.write(self.philosophical_toml)
-            temp_path = f.name
+        temp_path = self.create_temp_file(self.philosophical_toml)
 
         try:
             sequences, config = parse_udpl_file(temp_path)
 
             # Walk through loop sequence to find zone with placeholders
-            current = sequences["loop"]
-            prompt_zone = None
-            while current is not None:
-                if "{min}" in current.raw_text and "{max}" in current.raw_text:
-                    prompt_zone = current
-                    break
-                current = current.next_zone
+            loop_nodes = self.collect_sequence_nodes(sequences["loop"])
+            placeholder_zones = self.find_nodes_with_text(loop_nodes, "{min}")
 
-            self.assertIsNotNone(prompt_zone, "Could not find zone with {min} and {max} placeholders")
+            self.assertTrue(len(placeholder_zones) > 0, "Could not find zone with {min} placeholder")
+            prompt_zone = placeholder_zones[0]
 
             # Check resource specifications
             expected_specs = {
                 "min": {
                     "name": "min_control_resource",
                     "arguments": None,
-                    "type": "control"
+                    "type": "custom"
                 },
                 "max": {
                     "name": "max_control_resource",
                     "arguments": None,
-                    "type": "control"
+                    "type": "custom"
                 }
             }
             self.assertEqual(prompt_zone.resource_specs, expected_specs)
@@ -273,71 +314,57 @@ tags = [[],["Feedback"]]
             self.assertIn("[Jump]", prompt_zone.raw_text)
 
         finally:
-            Path(temp_path).unlink()
+            self.cleanup_temp_file(temp_path)
 
     def test_solving_sequence_resources(self):
         """Test solving sequence has correct resource specifications."""
-        # Create temp file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False) as f:
-            f.write(self.philosophical_toml)
-            temp_path = f.name
+        temp_path = self.create_temp_file(self.philosophical_toml)
 
         try:
             sequences, config = parse_udpl_file(temp_path)
 
             # Find zone with placeholders in solving sequence
-            current = sequences["solving"]
-            prompt_zone = None
-            while current is not None:
-                if "{placeholder}" in current.raw_text and "{feedback}" in current.raw_text:
-                    prompt_zone = current
-                    break
-                current = current.next_zone
+            solving_nodes = self.collect_sequence_nodes(sequences["solving"])
+            placeholder_zones = self.find_nodes_with_text(solving_nodes, "{placeholder}")
 
-            self.assertIsNotNone(prompt_zone, "Could not find zone with placeholders")
+            self.assertTrue(len(placeholder_zones) > 0, "Could not find zone with placeholders")
+            prompt_zone = placeholder_zones[0]
 
             # Check resource specifications
             expected_specs = {
                 "placeholder": {
                     "name": "constitution",
                     "arguments": None,
-                    "type": "default"
+                    "type": "standard"
                 },
                 "feedback": {
                     "name": "feedback_backend",
                     "arguments": {"num_samples": 3},
-                    "type": "default"
+                    "type": "standard"
                 }
             }
             self.assertEqual(prompt_zone.resource_specs, expected_specs)
 
         finally:
-            Path(temp_path).unlink()
+            self.cleanup_temp_file(temp_path)
 
     def test_concluding_sequence_tags(self):
         """Test concluding sequence has correct tag distribution."""
-        # Create temp file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False) as f:
-            f.write(self.philosophical_toml)
-            temp_path = f.name
+        temp_path = self.create_temp_file(self.philosophical_toml)
 
         try:
             sequences, config = parse_udpl_file(temp_path)
 
             # Walk through concluding sequence
-            concluding_nodes = []
-            current = sequences["concluding"]
-            while current is not None:
-                concluding_nodes.append(current)
-                current = current.next_zone
+            concluding_nodes = self.collect_sequence_nodes(sequences["concluding"])
 
             # Should have 9 zones (3 blocks × 3 zones per block)
             self.assertEqual(len(concluding_nodes), 9)
 
             # Check tag distribution
-            correct_tagged = [node for node in concluding_nodes if "Correct" in node.tags]
-            incorrect_tagged = [node for node in concluding_nodes if "Incorrect" in node.tags]
-            feedback_tagged = [node for node in concluding_nodes if "Feedback" in node.tags]
+            correct_tagged = self.find_nodes_with_tags(concluding_nodes, "Correct")
+            incorrect_tagged = self.find_nodes_with_tags(concluding_nodes, "Incorrect")
+            feedback_tagged = self.find_nodes_with_tags(concluding_nodes, "Feedback")
 
             self.assertEqual(len(correct_tagged), 1, "Should have exactly 1 Correct tagged zone")
             self.assertEqual(len(incorrect_tagged), 1, "Should have exactly 1 Incorrect tagged zone")
@@ -349,26 +376,21 @@ tags = [[],["Feedback"]]
             self.assertEqual(feedback_tagged[0].block, 2)
 
         finally:
-            Path(temp_path).unlink()
+            self.cleanup_temp_file(temp_path)
 
     def test_construction_callbacks(self):
         """Test that construction callbacks can resolve placeholders."""
-        # Create temp file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False) as f:
-            f.write(self.philosophical_toml)
-            temp_path = f.name
+        temp_path = self.create_temp_file(self.philosophical_toml)
 
         try:
             sequences, config = parse_udpl_file(temp_path)
 
             # Find zone with placeholders in solving sequence
-            current = sequences["solving"]
-            prompt_zone = None
-            while current is not None:
-                if "{placeholder}" in current.raw_text:
-                    prompt_zone = current
-                    break
-                current = current.next_zone
+            solving_nodes = self.collect_sequence_nodes(sequences["solving"])
+            placeholder_zones = self.find_nodes_with_text(solving_nodes, "{placeholder}")
+
+            self.assertTrue(len(placeholder_zones) > 0, "Could not find zone with placeholders")
+            prompt_zone = placeholder_zones[0]
 
             # Create mock resources
             mock_constitution = Mock(spec=AbstractResource)
@@ -396,33 +418,33 @@ tags = [[],["Feedback"]]
             mock_feedback.assert_called_once_with(num_samples=3)
 
         finally:
-            Path(temp_path).unlink()
+            self.cleanup_temp_file(temp_path)
 
 
-class TestFolderParsingIntegration(unittest.TestCase):
+class TestFolderParsingIntegration(BaseIntegrationTest):
     """Test parsing UDPL across multiple files."""
 
     def test_split_config_and_sequences(self):
         """Test parsing when config and sequences are in separate files."""
-        temp_dir = tempfile.mkdtemp()
-        temp_path = Path(temp_dir)
+        temp_dir = self.create_temp_dir()
 
         try:
             # Create config file
-            config_file = temp_path / "config.toml"
+            config_file = temp_dir / "config.toml"
             config_file.write_text('''
 [config]
-zone_tokens = ["[Prompt]", "[Answer]", "[EOS]"]
-required_tokens = ["[Prompt]", "[Answer]"]
+zone_patterns = ["[Prompt]", "[Answer]", "[EOS]"]
+required_patterns = ["[Prompt]", "[Answer]"]
 valid_tags = ["Training", "Test"]
 default_max_token_length = 1000
 sequences = ["setup", "main"]
-control_token = "[Jump]"
-escape_token = "[Escape]"
+control_pattern = "[Jump]"
+escape_patterns = ["[Escape]", "[EndEscape]"]
+tools = []
 ''')
 
             # Create sequences file
-            sequences_file = temp_path / "sequences.toml"
+            sequences_file = temp_dir / "sequences.toml"
             sequences_file.write_text('''
 [[setup]]
 text = """
@@ -443,7 +465,7 @@ name = "input_resource"
 ''')
 
             # Parse the folder
-            sequences, config = parse_udpl_folder(str(temp_path))
+            sequences, config = parse_udpl_folder(str(temp_dir))
 
             # Verify config
             self.assertIsInstance(config, Config)
@@ -454,27 +476,13 @@ name = "input_resource"
             self.assertIn("main", sequences)
 
             # Verify setup sequence
-            setup_node = sequences["setup"]
-            setup_nodes = []
-            current = setup_node
-            while current is not None:
-                setup_nodes.append(current)
-                current = current.next_zone
-
-            # Find tagged zone
-            training_zones = [node for node in setup_nodes if "Training" in node.tags]
+            setup_nodes = self.collect_sequence_nodes(sequences["setup"])
+            training_zones = self.find_nodes_with_tags(setup_nodes, "Training")
             self.assertEqual(len(training_zones), 1)
 
             # Verify main sequence has resource
-            main_node = sequences["main"]
-            main_nodes = []
-            current = main_node
-            while current is not None:
-                main_nodes.append(current)
-                current = current.next_zone
-
-            # Find zone with placeholder
-            placeholder_zones = [node for node in main_nodes if "{input}" in node.raw_text]
+            main_nodes = self.collect_sequence_nodes(sequences["main"])
+            placeholder_zones = self.find_nodes_with_text(main_nodes, "{input}")
             self.assertEqual(len(placeholder_zones), 1)
 
             placeholder_zone = placeholder_zones[0]
@@ -482,40 +490,37 @@ name = "input_resource"
                 "input": {
                     "name": "input_resource",
                     "arguments": None,
-                    "type": "default"
+                    "type": "standard"
                 }
             }
             self.assertEqual(placeholder_zone.resource_specs, expected_spec)
 
         finally:
-            import shutil
-            shutil.rmtree(temp_dir)
+            self.cleanup_temp_dir(temp_dir)
 
 
-class TestSimpleExamples(unittest.TestCase):
+class TestSimpleExamples(BaseIntegrationTest):
     """Test simple UDPL examples for basic functionality."""
 
     def test_minimal_valid_example(self):
         """Test a minimal but complete UDPL example."""
         minimal_toml = '''
 [config]
-zone_tokens = ["[Prompt]", "[Answer]", "[EOS]"]
-required_tokens = ["[Prompt]", "[Answer]"]
+zone_patterns = ["[Prompt]", "[Answer]", "[EOS]"]
+required_patterns = ["[Prompt]", "[Answer]"]
 valid_tags = ["Test"]
 default_max_token_length = 100
 sequences = ["simple"]
-control_token = "[Jump]"
-escape_token = "[Escape]"
+control_pattern = "[Jump]"
+escape_patterns = ["[Escape]", "[EndEscape]"]
+tools = []
 
 [[simple]]
 text = """[Prompt] Hello world [Answer]"""
 tags = [[], ["Test"]]
 '''
 
-        # Create temp file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False) as f:
-            f.write(minimal_toml)
-            temp_path = f.name
+        temp_path = self.create_temp_file(minimal_toml)
 
         try:
             sequences, config = parse_udpl_file(temp_path)
@@ -525,44 +530,41 @@ tags = [[], ["Test"]]
             self.assertIn("simple", sequences)
 
             # Check sequence structure
-            simple_nodes = []
-            current = sequences["simple"]
-            while current is not None:
-                simple_nodes.append(current)
-                current = current.next_zone
+            simple_nodes = self.collect_sequence_nodes(sequences["simple"])
 
             # Should have 3 zones
             self.assertEqual(len(simple_nodes), 3)
 
             # Check first zone
-            self.assertEqual(simple_nodes[0].zone_advance_token, "[Prompt]")
+            self.assertEqual(simple_nodes[0].zone_advance_str, "[Prompt]")
             self.assertEqual(simple_nodes[0].raw_text, "[Prompt]")
             self.assertEqual(simple_nodes[0].tags, [])
 
             # Check second zone (with prompt content)
-            self.assertEqual(simple_nodes[1].zone_advance_token, "[Answer]")
+            self.assertEqual(simple_nodes[1].zone_advance_str, "[Answer]")
             self.assertEqual(simple_nodes[1].raw_text, " Hello world [Answer]")
             self.assertEqual(simple_nodes[1].tags, [])
 
             # Check third zone (answer zone)
-            self.assertEqual(simple_nodes[2].zone_advance_token, "[EOS]")
+            self.assertEqual(simple_nodes[2].zone_advance_str, "[EOS]")
             self.assertEqual(simple_nodes[2].raw_text, "")
             self.assertEqual(simple_nodes[2].tags, ["Test"])
 
         finally:
-            Path(temp_path).unlink()
+            self.cleanup_temp_file(temp_path)
 
     def test_repeated_blocks(self):
         """Test blocks with repeats field."""
         repeated_toml = '''
 [config]
-zone_tokens = ["[Prompt]", "[Answer]", "[EOS]"]
-required_tokens = ["[Prompt]", "[Answer]"]
+zone_patterns = ["[Prompt]", "[Answer]", "[EOS]"]
+required_patterns = ["[Prompt]", "[Answer]"]
 valid_tags = ["Training"]
 default_max_token_length = 100
 sequences = ["repeated"]
-control_token = "[Jump]"
-escape_token = "[Escape]"
+control_pattern = "[Jump]"
+escape_patterns = ["[Escape]", "[EndEscape]"]
+tools = []
 
 [[repeated]]
 text = """[Prompt] Attempt {attempt} [Answer]"""
@@ -573,26 +575,19 @@ repeats = 3
 name = "attempt_number"
 '''
 
-        # Create temp file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False) as f:
-            f.write(repeated_toml)
-            temp_path = f.name
+        temp_path = self.create_temp_file(repeated_toml)
 
         try:
             sequences, config = parse_udpl_file(temp_path)
 
             # Check sequence structure
-            repeated_nodes = []
-            current = sequences["repeated"]
-            while current is not None:
-                repeated_nodes.append(current)
-                current = current.next_zone
+            repeated_nodes = self.collect_sequence_nodes(sequences["repeated"])
 
             # Should have 9 zones (3 repeats × 3 zones per repeat)
             self.assertEqual(len(repeated_nodes), 9)
 
             # All zones with placeholders should have same resource spec
-            placeholder_zones = [node for node in repeated_nodes if "{attempt}" in node.raw_text]
+            placeholder_zones = self.find_nodes_with_text(repeated_nodes, "{attempt}")
             self.assertEqual(len(placeholder_zones), 3)  # One per repeat
 
             for zone in placeholder_zones:
@@ -600,13 +595,53 @@ name = "attempt_number"
                     "attempt": {
                         "name": "attempt_number",
                         "arguments": None,
-                        "type": "default"
+                        "type": "standard"
                     }
                 }
                 self.assertEqual(zone.resource_specs, expected_spec)
 
         finally:
-            Path(temp_path).unlink()
+            self.cleanup_temp_file(temp_path)
+
+    def test_escape_patterns_integration(self):
+        """Test that escape patterns work correctly in integration."""
+        escape_toml = '''
+[config]
+zone_patterns = ["[Prompt]", "[Answer]", "[EOS]"]
+required_patterns = ["[Prompt]", "[Answer]"]
+valid_tags = ["Test"]
+default_max_token_length = 100
+sequences = ["test"]
+control_pattern = "[Jump]"
+escape_patterns = ["[Escape]", "[EndEscape]"]
+tools = []
+
+[[test]]
+text = """[Prompt] Use [Escape] [Jump] [EndEscape] to jump [Answer]"""
+tags = [[], ["Test"]]
+'''
+
+        temp_path = self.create_temp_file(escape_toml)
+
+        try:
+            # Should parse without warnings since control pattern is escaped
+            sequences, config = parse_udpl_file(temp_path)
+
+            # Basic validation
+            self.assertEqual(len(sequences), 1)
+            test_nodes = self.collect_sequence_nodes(sequences["test"])
+
+            # Find prompt zone
+            prompt_zones = self.find_nodes_with_text(test_nodes, "Use")
+            self.assertEqual(len(prompt_zones), 1)
+
+            prompt_zone = prompt_zones[0]
+            self.assertIn("[Escape]", prompt_zone.raw_text)
+            self.assertIn("[Jump]", prompt_zone.raw_text)
+            self.assertIn("[EndEscape]", prompt_zone.raw_text)
+
+        finally:
+            self.cleanup_temp_file(temp_path)
 
 
 if __name__ == "__main__":

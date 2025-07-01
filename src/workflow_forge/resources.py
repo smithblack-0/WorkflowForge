@@ -10,6 +10,9 @@ mechanism.
 from abc import ABC, abstractmethod
 from typing import List, Union
 
+import numpy as np
+
+
 class AbstractResource(ABC):
     """
     The abstract resource class. Specifies
@@ -35,21 +38,37 @@ class StaticStringResource(AbstractResource):
     def __call__(self)->str:
         return self.string
 
+
 class ListSamplerResource(AbstractResource):
     """
     A string sampler resource is capable of drawing
     samples randomly from among an internal
-    list of strings.
+    list of strings without replacement (exhaustion).
     """
+
     def __init__(self, string_list: List[str]):
         assert len(string_list) > 0
         self.string_list = string_list
-    def __call__(self, num_samples: Union[int, str])->str:
+        self.remaining_items = string_list.copy()
+
+    def __call__(self, num_samples: Union[int, str]) -> str:
         output = []
         if isinstance(num_samples, int):
-            samples = torch.randint(0, len(self.string_list), [num_samples])
-            for idx in samples:
-                output.append(self.string_list[idx])
+            # If we don't have enough remaining items, reset the pool
+            if len(self.remaining_items) < num_samples:
+                self.remaining_items = self.string_list.copy()
+
+            # Sample without replacement
+            sampled_indices = np.random.choice(
+                len(self.remaining_items),
+                size=min(num_samples, len(self.remaining_items)),
+                replace=False
+            )
+
+            # Get the sampled items and remove them from remaining_items
+            for idx in sorted(sampled_indices, reverse=True):
+                output.append(self.remaining_items.pop(idx))
+
         elif isinstance(num_samples, str):
             if num_samples == "all":
                 output = self.string_list
@@ -57,7 +76,7 @@ class ListSamplerResource(AbstractResource):
                 raise NotImplementedError("Unknown string sampling type")
         return "\n".join(output)
 
-class FeedbackSamplerResource(ListSamplerResource):
+class LRUBufferResource(ListSamplerResource):
     """
     A specialized list sampler that maintains an
     internal repository of examples to sample from

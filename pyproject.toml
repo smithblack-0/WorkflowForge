@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "workflow-forge"
-version = "0.1.1"
+version = "0.1.8"
 description = "AI models that control their own prompt feeds"
 readme = "README.md"
 license = {text = "MIT"}
@@ -32,11 +32,15 @@ dependencies = [
     "torch>=1.9.0",
     "numpy>=1.21.0",
     "toml>=0.10.0",
+    "msgpack>=1.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "coverage>=7.0.0",
+    "igraph",
+    "networkx",
+    "plotly"
 ]
 
 [project.urls]

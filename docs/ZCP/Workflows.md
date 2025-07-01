@@ -1,0 +1,3 @@
+# What are Workflows?
+
+Workflows are the heart of the system, and what SFCS actually readies itself to compile. They come in two flavors. The regular workflow is designed to be serialized for communication between the frontend and the backend. The lowered workflow meanwhile contains tokenization, graph, etc resources that are no longer strings are are just ready to be flattened into their graph. LZCP nodes in other word

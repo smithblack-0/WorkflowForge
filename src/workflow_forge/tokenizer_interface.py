@@ -6,6 +6,7 @@ and an adapter system for registering new tokenizer types.
 """
 
 from typing import Callable, Dict, Any, Type, List, Union
+
 import numpy as np
 
 

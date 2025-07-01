@@ -6,7 +6,60 @@ All notable changes to Workflow Forge will be documented in this file.
 
 *Note: This is an early development release. SFCS flow control and TTFA execution engine are still in development. Backend engine is not yet functional. Language is still vulnerable to change, and backwards compatibility not yet guaranteed*
 
+## [0.1.8]
 
+2025-28-06
+
+* SZCP visualization is in place 
+
+
+## [0.1.7]
+
+2025-26-06
+
+- A number of tweaks. Fully dynamic resource callback, allowing different resources every time you invoke the factory. Lots of zcp fixes. Lots of other fixes. 
+- 
+
+
+## [0.1.6]
+
+2025-24-6
+
+- Had to do another pass through the udpl/zcp system, but everything is finally ready for integration with SFCS.
+
+## [0.1.5]
+
+6-23-2025
+
+- Added new escape strategy. "[Escape]....[EndEscape]"
+- Pivoted a bunch of documentation to comply
+- Ensured documention was up to date before beginning final integration rebuild up to LZCP.
+
+## [0.1.4]
+
+6-21-2025
+
+- Documentation modifications, and added a much clearer technical status tracker
+- Adopting serialization mechanism into ZCP nodes... finished. Unit testing... finished.
+
+
+## [0.1.3] 
+
+2025-06-20
+
+- I can see a clear way to serialize the workflow, and then deserialize it later. Making it work means a few tweaks in the tool-using system, but is probably worth the trouble.
+- I think I will go ahead and implement the changes. There will be an extra SZCP stage, and a workflow factory mechanism that does the actual resource sampling to produce a workflow. Resources stay on the client. The workflow's themselves are what can be serialized and sent to the other backend system.
+- Went through with the pivot. We are going to have a server/client system. I believe this is as wide as the scope is ever going to get for the initial release.
+
+
+## [0.1.2] 2025-06-19
+
+(2025-06-19)
+- We are pivoting to using entire strings of tokens, rather than requiring the user to setup special tokens in their tokenizer and embeddings. This adds complexity, but it is not unmanagable.
+- This involved adding the Token Trigger Detection Autonoma, to detect when a special command has been issued, and the Forced Token Feeding Autonoma, which can be triggered by a bool state and automatically claim the stream and feed tokens to force, for instance, '[NextZone]' into the stream on timeout.
+- Fixed all the various typing references to refer to an array of tokens rather than an int. userspace document still talks about a 'token' usually as that is what the user may think of as specifying.
+- Renamed folder ZCP to zcp, to comply with the style standards. Come to think of it, I need to write down the style standards don't I?
+- Added much stronger error coupling between zcp nodes and factory construction in program, ensuring that 
 
 ## [0.1.1] - 2025-06-18
 

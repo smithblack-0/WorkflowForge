@@ -2,8 +2,6 @@
 
 The Main Orchestration Autonoma (MOA) is the main Token Triggered Finite Autonoma. This is, in essence, a small Turing-complete computer implemented on the GPU that can operate in parallel but still do general computation by means of pointer dereferencing. 
 
-Each PTA is compiled for the individual batch that is being processed, and they support single workflow multiple stream generation across different batches.
-
 ## Data Structures
 
 Internally, the data of the PTA consists of the instructions tensors, the data tensors, and then the state tracking.
