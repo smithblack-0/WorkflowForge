@@ -6,6 +6,14 @@ All notable changes to Workflow Forge will be documented in this file.
 
 *Note: This is an early development release. SFCS flow control and TTFA execution engine are still in development. Backend engine is not yet functional. Language is still vulnerable to change, and backwards compatibility not yet guaranteed*
 
+## [0.2.0]
+
+2025-1-07
+
+- First major iteration. The frontend system, sans the client, is done. The compiler works, and lowers to assembly graph nodes. It is fairly easy to flatten from there. As such, I am upping to the next major version.
+- Visualization is online. Workflows are added. Calling workflow.visualize gives you a nice SZCP visualization
+- Integration tests are online. SFCS is all working. All tests are green.
+
 ## [0.1.8]
 
 2025-28-06
