@@ -54,12 +54,5 @@ Additionally:
 - One test suite should exist per tested feature.
 - Error raising should also be tested.
 
-### Getting Started
-1. Read the [Architecture Overview](docs/Overview.md) to understand the system. 
-2. Read the [UDPL Spec](docs/UserGuide/UDPL.md) to understand how UDPL and the declaritive syntax works.
-3. Read the [SFCS Spec](docs/UserGuide/SFCS.md) to understand how flow control works and the common mistakes.
-4. Check [open issues](../../issues) for specific tasks
-5. Join discussions in [GitHub Discussions](../../discussions) for design questions
-
 
 
