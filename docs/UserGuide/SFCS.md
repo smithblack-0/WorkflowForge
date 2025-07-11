@@ -165,14 +165,14 @@ program.run("answer")
 
 ### .capture
 
-Invoke a request to use a tool, using the content of the last zone of the sequence. Flags movement into capture buffer, and triggers tool invokation on zone change.
+Invoke a request to use a tool, using the content of the last zone of the sequence. Capture begins ONLY after all teacher-forcing finishes. This means if you teacher-force everything it will never capture.
 
 **Deeper Understanding**: Sets the output RZCP flag to something nonzero.
 
 
 ### .feed
 
-Feeds, for the batch, the last results of the capture buffer in place of the generative context. Note this literally feeds the last thing that was run, and will be overwritten by subsequent tool calls.
+Feeds, for the batch, the last results of the capture buffer in place of the generative context. Note this literally feeds the last thing that was run, and will be overwritten by subsequent tool calls. The feeding process will begin after all teacher forcing finishes. This means if you teacher-force everything you will never be able to feed.
 
 **Deeper Understanding**: Sets the input RZCP flag to something nonzero.
 

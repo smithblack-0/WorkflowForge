@@ -1,6 +1,5 @@
 # Overview
 
-
 ## Background
 
 The GPU "Main Orchestration Autonoma" VM is a full fledged computer implemented entirely in terms of tensor operations. This is a literal statement of fact - it has its own instruction memory, decoding pipeline, and subsequent actions it can take in response. Nonetheless, it is implemented entirely using CUDA tensor operations in a manner that can execute in parallel across batches on the GPU. This is achieved through several key innovations which have all been brought together.
@@ -13,6 +12,7 @@ The primary theoretical innovations underlying this computer has been produced b
 2) Vectorized numpy "Advanced Indexing" using integers is isomorphic to dereferencing pointers. This then allows us to specify a set of tensors of instructions which can be dereferenced by program count in terms of raw tensor operations, so long as we can then decode the retrieved instructions. In practice, this means storing many parallel tensors that sometimes consist of padding to encode, for instance, jump destinations even if one will never actually be used
 3) Overriding the token stream by inserting a precompiled prompt in order is tremendously powerful. This technique can be used to arbitrarily switch between teacher-forcing and generative freewheeling if a triggering mechanism to control the feed and vectorized logic can be found. 
 4) The proposed instruction set would be unwieldy if this token stream was directly compiled into an instruction stream. However, by having the instructions point into a data array with a start and end pointer, it is possible to encode information of arbitrary length and bind it to instructions.
+
 
 Put together, these effects mean it is possible to design a batch-parallel computer which can accept in sampled tokens, replace them if needed, and used the sampling stream itself to make prompting flow decisions. This puts the model in the seat of the commander, and enables the logic of the system. 
 
