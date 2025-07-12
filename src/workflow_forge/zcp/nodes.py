@@ -13,7 +13,7 @@ zcp supports Directed Cyclic IO Graphs (DCG-IO), which are directed graphs that:
 """
 import textwrap
 from dataclasses import dataclass
-from typing import Optional, List, Callable, Dict, Any, Tuple
+from typing import Optional, List, Callable, Dict, Any, Tuple, Generator
 
 import numpy as np
 
@@ -92,6 +92,41 @@ class GraphError(Exception):
         self.sequence = sequence
         self.block = block
 
+from typing import TypeVar, Dict, Optional, Union
+
+# Union type for all ZCP node types
+ZCPNodeType = TypeVar('ZCPNodeType', bound=Union['RZCPNode', 'SZCPNode', 'LZCPNode'])
+
+def discover_all_nodes(root_node: ZCPNodeType,
+                     visited: Optional[Dict[ZCPNodeType, int]] = None
+                     ) -> Dict[ZCPNodeType, int]:
+   """
+   Walk the entire graph and assign a unique index to each node.
+
+   Uses depth-first traversal with cycle detection. Returns a complete
+   mapping of all reachable nodes to their assigned indices.
+
+   Args:
+       root_node: Starting node for graph traversal
+       visited: Internal parameter for recursion, tracks already-discovered nodes
+
+   Returns:
+       Dict mapping each discovered node to its unique index (starting from 0)
+   """
+   if visited is None:
+       visited = {}
+
+   if root_node in visited:
+       return visited
+
+   visited[root_node] = len(visited)
+
+   if hasattr(root_node, 'next_zone') and root_node.next_zone is not None:
+       discover_all_nodes(root_node.next_zone, visited)
+   if hasattr(root_node, 'jump_zone') and root_node.jump_zone is not None:
+       discover_all_nodes(root_node.jump_zone, visited)
+
+   return visited
 
 @dataclass
 class ZCPNode:
@@ -112,6 +147,7 @@ class ZCPNode:
         timeout: Maximum tokens to generate before forcing advancement
         next_zone: Next zone in the linked list
     """
+
     sequence: str
     block: int
     construction_callback: Callable[[Dict[str, AbstractResource]], str]
@@ -638,7 +674,7 @@ class SZCPNode:
             None references become None values in the serialized format.
         """
         # Phase 1: Discover all reachable nodes and assign indices
-        nodes = self._discover_all_nodes()
+        nodes = discover_all_nodes(self)
 
         # Phase 2: Serialize each node's data
         serialized_nodes = {}
@@ -647,33 +683,6 @@ class SZCPNode:
 
         return serialized_nodes
 
-    def _discover_all_nodes(self, visited: Optional[Dict['SZCPNode', int]] = None) -> Dict['SZCPNode', int]:
-        """
-        Phase 1: Walk the entire graph and assign a unique index to each node.
-
-        Uses depth-first traversal with cycle detection. Returns a complete
-        mapping of all reachable nodes to their assigned indices.
-
-        Args:
-            visited: Internal parameter for recursion, tracks already-discovered nodes
-
-        Returns:
-            Dict mapping each discovered node to its unique index (starting from 0)
-        """
-        if visited is None:
-            visited = {}
-
-        if self in visited:
-            return visited
-
-        visited[self] = len(visited)
-
-        if self.next_zone is not None:
-            self.next_zone._discover_all_nodes(visited)
-        if self.jump_zone is not None:
-            self.jump_zone._discover_all_nodes(visited)
-
-        return visited
     def _serialize_node(self, nodes: Dict['SZCPNode', int]) -> Dict[str, Dict[str, Any]]:
         """
         Serialize this node's data, replacing object references with indices.
@@ -819,7 +828,7 @@ class SZCPNode:
             raise NotImplementedError(msg) from reason
 
         # Extract all nodes from SZCP graph
-        all_nodes = self._discover_all_nodes()
+        all_nodes = discover_all_nodes(self)
 
         # Build NetworkX graph for layout algorithm
         G = nx.DiGraph()
@@ -1014,21 +1023,6 @@ class LZCPNode:
     def num_tokens(self) -> int:
         """Get the number of tokens in this zone."""
         return len(self.tokens)
-
-    def get_active_tags(self, tag_names: List[str]) -> List[str]:
-        """
-        Get the names of tags that are active for this zone.
-
-        Args:
-            tag_names: List of tag names corresponding to the boolean array indices
-
-        Returns:
-            List of active tag names
-        """
-        if len(tag_names) != len(self.tags):
-            raise ValueError("tag_names length must match tags array length")
-
-        return [name for name, active in zip(tag_names, self.tags) if active]
 
     def get_last_node(self) -> 'LZCPNode':
         """

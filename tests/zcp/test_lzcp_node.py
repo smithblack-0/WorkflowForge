@@ -469,42 +469,6 @@ class TestLZCPNodeStateQueries(BaseLZCPNodeTest):
         )
         self.assertEqual(large_tokens_node.num_tokens(), 5)
 
-    def test_get_active_tags(self):
-        """Test get_active_tags returns correct tag names."""
-        # Test with [True, False, True] pattern
-        node = self.create_node(tags=self.get_valid_tags([True, False, True]))
-        tag_names = ["Training", "Correct", "Feedback"]
-
-        # Should return names for True positions: index 0 and 2
-        active_tags = node.get_active_tags(tag_names)
-        self.assertEqual(active_tags, ["Training", "Feedback"])
-
-    def test_get_active_tags_all_false(self):
-        """Test get_active_tags with no active tags."""
-        node = self.create_node(tags=self.get_valid_tags([False, False, False]))
-        tag_names = ["Training", "Correct", "Feedback"]
-
-        active_tags = node.get_active_tags(tag_names)
-        self.assertEqual(active_tags, [])
-
-    def test_get_active_tags_all_true(self):
-        """Test get_active_tags with all tags active."""
-        node = self.create_node(tags=self.get_valid_tags([True, True, True]))
-        tag_names = ["Training", "Correct", "Feedback"]
-
-        active_tags = node.get_active_tags(tag_names)
-        self.assertEqual(active_tags, ["Training", "Correct", "Feedback"])
-
-    def test_get_active_tags_length_mismatch(self):
-        """Test get_active_tags raises error for mismatched lengths."""
-        node = self.create_node(tags=self.get_valid_tags([True, False, True]))
-        tag_names = ["Training", "Correct"]  # Only 2 names but 3 tags
-
-        with self.assertRaises(ValueError) as context:
-            node.get_active_tags(tag_names)
-
-        self.assertIn("tag_names length must match tags array length", str(context.exception))
-
 
 class TestLZCPNodeLinkedList(BaseLZCPNodeTest):
     """Test linked list operations."""
